@@ -1,4 +1,4 @@
-import type { RawTrajectory, Substep, TrajectoryIR, TrajectoryStep } from "../types/index.js";
+import type { RawTrajectory, Substep, TrajectoryIR, TrajectoryStep, ToolExecutionMetrics } from "../types/index.js";
 import { validateIr } from "./schema.js";
 
 const USER_QUERY_RE = /<user_query>\s*(.*?)\s*<\/user_query>/s;
@@ -25,7 +25,11 @@ function toolContent(inp: Record<string, unknown>): string {
   }
 }
 
-function parseAssistantContent(contentList: NonNullable<NonNullable<RawTrajectory["events"][0]["message"]>["content"]>): Substep[] {
+function parseAssistantContent(
+  contentList: NonNullable<NonNullable<RawTrajectory["events"][0]["message"]>["content"]>,
+  stepIndex: number,
+  metricsMap?: Map<string, ToolExecutionMetrics>
+): Substep[] {
   const substeps: Substep[] = [];
   let subIdx = 0;
   for (const item of contentList) {
@@ -45,6 +49,7 @@ function parseAssistantContent(contentList: NonNullable<NonNullable<RawTrajector
         content: toolContent(inp),
         tool_name: name,
         tool_input: inp,
+        execution: metricsMap?.get(`${stepIndex}:${subIdx}`),
       });
     }
   }
@@ -58,14 +63,19 @@ function stepTelemetry(substeps: Substep[], userTurn: number) {
   const grep_patterns: string[] = [];
   const read_paths: string[] = [];
   const skill_reads: string[] = [];
+  let tool_duration_ms = 0;
+  let tool_output_tokens = 0;
 
   for (const sub of substeps) {
     const role = sub.role ?? "";
     const inp = sub.tool_input ?? {};
     const name = sub.tool_name ?? "";
+    const exec = sub.execution;
 
     if (role.startsWith("tool:")) tool_names.push(name || (role.split(":")[1] ?? ""));
     if (role.startsWith("mcp:")) mcp_servers.push(role.split(":")[1]?.split("/")[0] ?? "");
+    if (exec?.duration_ms != null) tool_duration_ms += exec.duration_ms;
+    tool_output_tokens += exec?.output_tokens ?? 0;
 
     if (name === "Shell") {
       const cmd = String(inp.command ?? "");
@@ -90,6 +100,8 @@ function stepTelemetry(substeps: Substep[], userTurn: number) {
     read_count: read_paths.length,
     grep_count: grep_patterns.length,
     assistant_chars: substeps.filter((s) => s.role === "assistant").reduce((n, s) => n + s.content.length, 0),
+    tool_duration_ms,
+    tool_output_tokens,
     tool_names,
     mcp_servers,
     shell_cmds,
@@ -99,7 +111,7 @@ function stepTelemetry(substeps: Substep[], userTurn: number) {
   };
 }
 
-export function cursorIr(trajectories: RawTrajectory[]): TrajectoryIR[] {
+export function cursorIr(trajectories: RawTrajectory[], metricsMap?: Map<string, ToolExecutionMetrics>, toolEfficiency?: Record<string, unknown>): TrajectoryIR[] {
   const out: TrajectoryIR[] = [];
 
   for (const traj of trajectories) {
@@ -126,7 +138,7 @@ export function cursorIr(trajectories: RawTrajectory[]): TrajectoryIR[] {
 
       if (role !== "assistant") continue;
 
-      const substeps = parseAssistantContent(contentList);
+      const substeps = parseAssistantContent(contentList, stepIdx, metricsMap);
       if (!substeps.length) continue;
 
       stepIdx++;
@@ -146,6 +158,7 @@ export function cursorIr(trajectories: RawTrajectory[]): TrajectoryIR[] {
         event_count: events.length,
         step_count: steps.length,
         user_turns: userTurn,
+        tool_efficiency: toolEfficiency,
       },
       steps,
     };

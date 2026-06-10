@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { flattenOnly, processFile } from "./pipeline.js";
+import { flattenOnly, processFile, regenerateAnalysisFromRunDir } from "./pipeline.js";
 import { readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
 
@@ -11,6 +11,7 @@ function parseArgs(argv: string[]) {
   let batch = false;
   let flattenOnlyFlag = false;
   let skipJudge = false;
+  let analysisOnly = false;
 
   for (let i = 0; i < args.length; i++) {
     const a = args[i];
@@ -19,10 +20,11 @@ function parseArgs(argv: string[]) {
     else if (a === "--batch") batch = true;
     else if (a === "--flatten-only") flattenOnlyFlag = true;
     else if (a === "--skip-judge") skipJudge = true;
+    else if (a === "--analysis-only") analysisOnly = true;
     else if (!a.startsWith("-")) input = a;
   }
 
-  return { input, runName, output, batch, flattenOnlyFlag, skipJudge };
+  return { input, runName, output, batch, flattenOnlyFlag, skipJudge, analysisOnly };
 }
 
 function walkJsonl(dir: string): string[] {
@@ -36,14 +38,20 @@ function walkJsonl(dir: string): string[] {
   return out.sort();
 }
 
-const { input, runName, output, batch, flattenOnlyFlag, skipJudge } = parseArgs(process.argv);
+const { input, runName, output, batch, flattenOnlyFlag, skipJudge, analysisOnly } = parseArgs(process.argv);
 
 if (!input) {
   console.log(`Usage:
   doctor <transcript.jsonl> [--run-name NAME]
   doctor <transcript.jsonl> --flatten-only [-o out.md]
+  doctor <run-dir> --analysis-only
   doctor <dir> --batch`);
   process.exit(1);
+}
+
+if (analysisOnly) {
+  regenerateAnalysisFromRunDir(input);
+  process.exit(0);
 }
 
 if (flattenOnlyFlag) {

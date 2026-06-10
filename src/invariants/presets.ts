@@ -120,6 +120,66 @@ const invTool003: CheckFn = (_t, steps) => {
   return [];
 };
 
+const invTool004: CheckFn = (_t, steps) => {
+  const out: Violation[] = [];
+  for (const s of steps) {
+    for (const sub of s.substeps) {
+      const dur = sub.execution?.duration_ms;
+      if (dur != null && dur >= 120_000) {
+        out.push(v("INV-TOOL-004", "tool", s.index, "high",
+          `Slow tool ${sub.tool_name}: ${Math.round(dur / 1000)}s at substep ${sub.sub_index}`,
+          { tool: sub.tool_name, duration_ms: dur, sub_index: sub.sub_index }));
+      }
+    }
+  }
+  return out;
+};
+
+const invTool005: CheckFn = (_t, steps) => {
+  const out: Violation[] = [];
+  for (const s of steps) {
+    for (const sub of s.substeps) {
+      const tokens = sub.execution?.output_tokens ?? 0;
+      if (tokens >= 50_000) {
+        out.push(v("INV-TOOL-005", "tool", s.index, "high",
+          `Bloated tool output ${sub.tool_name}: ~${tokens.toLocaleString()} tokens`,
+          { tool: sub.tool_name, output_tokens: tokens, sub_index: sub.sub_index }));
+      }
+    }
+  }
+  return out;
+};
+
+const invTool006: CheckFn = (_t, steps) => {
+  const totalMs = steps.reduce((n, s) => n + (s.telemetry.tool_duration_ms ?? 0), 0);
+  if (totalMs >= 30 * 60_000) {
+    return [v("INV-TOOL-006", "tool", steps.at(-1)?.index ?? 0, "high",
+      `Session tool wall time ~${Math.round(totalMs / 60000)} min (threshold 30 min)`,
+      { total_tool_duration_ms: totalMs })];
+  }
+  return [];
+};
+
+const invTool007: CheckFn = (_t, steps) => {
+  let readTokens = 0;
+  let readCount = 0;
+  for (const s of steps) {
+    for (const sub of s.substeps) {
+      if (sub.tool_name === "Read") {
+        readTokens += sub.execution?.output_tokens ?? 0;
+        readCount++;
+      }
+    }
+  }
+  const avg = readCount ? readTokens / readCount : 0;
+  if (readCount >= 20 && avg >= 5000) {
+    return [v("INV-TOOL-007", "tool", steps[Math.floor(steps.length / 2)]!.index, "medium",
+      `Read output bloat: avg ~${Math.round(avg).toLocaleString()} tokens across ${readCount} reads`,
+      { avg_read_tokens: Math.round(avg), read_count: readCount })];
+  }
+  return [];
+};
+
 const invMcp001: CheckFn = (_t, steps) => {
   const totalTools = steps.reduce((n, s) => n + s.telemetry.tool_count, 0);
   const mcpCalls = steps.reduce((n, s) => n + s.telemetry.mcp_count, 0);
@@ -179,6 +239,10 @@ export const PRESET_INVARIANTS: Invariant[] = [
   { invariant_id: "INV-TOOL-001", category: "tool", description: "Repeated Grep", check: invTool001 },
   { invariant_id: "INV-TOOL-002", category: "tool", description: "Repeated Shell", check: invTool002 },
   { invariant_id: "INV-TOOL-003", category: "tool", description: "Harness retry loop", check: invTool003 },
+  { invariant_id: "INV-TOOL-004", category: "tool", description: "Slow single tool execution", check: invTool004 },
+  { invariant_id: "INV-TOOL-005", category: "tool", description: "Bloated tool output", check: invTool005 },
+  { invariant_id: "INV-TOOL-006", category: "tool", description: "Excessive total tool wall time", check: invTool006 },
+  { invariant_id: "INV-TOOL-007", category: "tool", description: "Read output bloat", check: invTool007 },
   { invariant_id: "INV-MCP-001", category: "mcp", description: "MCP-heavy session", check: invMcp001 },
   { invariant_id: "INV-MCP-002", category: "mcp", description: "MCP thrashing", check: invMcp002 },
   { invariant_id: "INV-SKILL-001", category: "skill", description: "Skill read but over-explore", check: invSkill001 },

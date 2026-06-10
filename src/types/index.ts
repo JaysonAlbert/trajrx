@@ -18,6 +18,8 @@ export interface StepTelemetry {
   read_count: number;
   grep_count: number;
   assistant_chars: number;
+  tool_duration_ms: number;
+  tool_output_tokens: number;
   tool_names: string[];
   mcp_servers: string[];
   shell_cmds: string[];
@@ -26,12 +28,22 @@ export interface StepTelemetry {
   skill_reads: string[];
 }
 
+export interface ToolExecutionMetrics {
+  duration_ms: number | null;
+  duration_source: "terminal" | "estimated" | "unknown";
+  output_chars: number;
+  output_tokens: number;
+  output_source: "agent_tools" | "read_file" | "terminal_output" | "estimated" | "unknown";
+  output_path?: string;
+}
+
 export interface Substep {
   sub_index: number;
   role: string;
   content: string;
   tool_name?: string;
   tool_input?: Record<string, unknown>;
+  execution?: ToolExecutionMetrics;
 }
 
 export interface TrajectoryStep {
@@ -49,6 +61,7 @@ export interface TrajectoryIR {
     event_count?: number;
     step_count?: number;
     user_turns?: number;
+    tool_efficiency?: Record<string, unknown>;
   };
   steps: TrajectoryStep[];
 }

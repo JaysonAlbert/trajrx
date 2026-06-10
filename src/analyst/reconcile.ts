@@ -45,6 +45,16 @@ export function manualAttribution(traj: TrajectoryIR) {
     causes.tool = (causes.tool ?? 0) + 2;
     findings.push(`Shell-heavy debugging: ${totalShells} shell invocations`);
   }
+  const totalToolMs = steps.reduce((n, s) => n + (s.telemetry.tool_duration_ms ?? 0), 0);
+  const totalOutTokens = steps.reduce((n, s) => n + (s.telemetry.tool_output_tokens ?? 0), 0);
+  if (totalToolMs >= 20 * 60_000) {
+    causes.tool = (causes.tool ?? 0) + 3;
+    findings.push(`Tool wall time ~${Math.round(totalToolMs / 60000)} min — execution efficiency issue`);
+  }
+  if (totalOutTokens >= 500_000) {
+    causes.context = (causes.context ?? 0) + 2;
+    findings.push(`Tool output bloat: ~${Math.round(totalOutTokens / 1000)}k tokens fed back into context`);
+  }
   if (totalMcps > 100) {
     causes.mcp = (causes.mcp ?? 0) + 3;
     findings.push(`MCP thrashing: ${totalMcps} DB/log queries (oracle-heavy)`);

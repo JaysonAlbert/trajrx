@@ -1,5 +1,6 @@
-import type { Attribution, CheckerResult, TrajectoryIR, Violation } from "../types/index.js";
+import type { Attribution, CheckerResult, ToolExecutionMetrics, TrajectoryIR, Violation } from "../types/index.js";
 import type { CursorEvent } from "../types/index.js";
+import { formatDuration, formatTokenCount } from "../enrich/toolMetrics.js";
 
 const USER_QUERY_RE = /<user_query>\s*(.*?)\s*<\/user_query>/s;
 const REDACTED_RE = /\[REDACTED\]/g;
@@ -16,8 +17,19 @@ function truncate(s: string, max: number): string {
   return s.slice(0, max - 20) + "\n\n… [truncated]";
 }
 
-function formatToolBlock(name: string, inp: Record<string, unknown>, maxToolChars: number): string {
+function formatExecutionMetrics(exec?: ToolExecutionMetrics): string[] {
+  if (!exec) return [];
+  const lines: string[] = [];
+  lines.push(`- **duration:** ${formatDuration(exec.duration_ms)} (${exec.duration_source})`);
+  lines.push(`- **output:** ${formatTokenCount(exec.output_chars)} chars / ~${formatTokenCount(exec.output_tokens)} tokens (${exec.output_source})`);
+  if (exec.output_path) lines.push(`- **output_path:** \`${exec.output_path}\``);
+  return lines;
+}
+
+function formatToolBlock(name: string, inp: Record<string, unknown>, maxToolChars: number, exec?: ToolExecutionMetrics): string {
   const lines: string[] = [`### Tool: \`${name}\``, ""];
+  lines.push(...formatExecutionMetrics(exec));
+  if (lines.length > 2) lines.push("");
 
   if (name === "CallMcpTool") {
     lines.push(`- **MCP server:** \`${inp.server ?? "unknown"}\``);
@@ -71,6 +83,8 @@ export interface FlattenOptions {
   sourcePath?: string;
   maxToolChars?: number;
   maxAssistantChars?: number;
+  toolMetrics?: Map<string, ToolExecutionMetrics>;
+  sessionToolStats?: Record<string, unknown>;
 }
 
 export function flattenEventsToMarkdown(events: CursorEvent[], opts: FlattenOptions = {}): string {
@@ -79,6 +93,8 @@ export function flattenEventsToMarkdown(events: CursorEvent[], opts: FlattenOpti
     sourcePath = "",
     maxToolChars = 4000,
     maxAssistantChars = 8000,
+    toolMetrics,
+    sessionToolStats,
   } = opts;
 
   let userTurn = 0;
@@ -124,12 +140,19 @@ export function flattenEventsToMarkdown(events: CursorEvent[], opts: FlattenOpti
     stepIdx++;
     body.push("---", "", `## Assistant Step ${stepIdx} (#S${stepIdx}, after #U${userTurn})`, "");
 
+    let subIdx = 0;
     for (const item of contentList) {
       if (item.type === "text") {
         const text = String(item.text ?? "").trim().replace(REDACTED_RE, "_[thinking redacted]_");
         if (text) body.push("", truncate(text, maxAssistantChars), "");
       } else if (item.type === "tool_use") {
-        body.push("", formatToolBlock(String(item.name ?? "unknown"), (item.input ?? {}) as Record<string, unknown>, maxToolChars), "");
+        subIdx++;
+        body.push("", formatToolBlock(
+          String(item.name ?? "unknown"),
+          (item.input ?? {}) as Record<string, unknown>,
+          maxToolChars,
+          toolMetrics?.get(`${stepIdx}:${subIdx}`)
+        ), "");
       }
     }
   }
@@ -139,6 +162,27 @@ export function flattenEventsToMarkdown(events: CursorEvent[], opts: FlattenOpti
   }
   parts.push("## Conversation", "", ...body);
   parts.push("---", "", "## Session Stats", "", `- user_turns: ${userTurn}`, `- assistant_steps: ${stepIdx}`, "");
+  if (sessionToolStats) {
+    parts.push("## Tool Efficiency Summary", "");
+    parts.push(`- total_tool_duration: ${formatDuration(Number(sessionToolStats.total_duration_ms ?? 0))}`);
+    parts.push(`- total_output_tokens: ~${formatTokenCount(Number(sessionToolStats.total_output_tokens ?? 0))}`);
+    parts.push(`- total_output_chars: ${formatTokenCount(Number(sessionToolStats.total_output_chars ?? 0))}`);
+    const slowest = (sessionToolStats.slowest as Array<{ step: number; sub_index: number; tool: string; duration_ms: number; output_tokens: number }>) ?? [];
+    if (slowest.length) {
+      parts.push("", "### Slowest tools", "");
+      for (const row of slowest.slice(0, 5)) {
+        parts.push(`- #S${row.step} \`${row.tool}\`: ${formatDuration(row.duration_ms)}, ~${formatTokenCount(row.output_tokens)} tokens`);
+      }
+    }
+    const largest = (sessionToolStats.largest_outputs as Array<{ step: number; sub_index: number; tool: string; duration_ms: number; output_tokens: number }>) ?? [];
+    if (largest.length) {
+      parts.push("", "### Largest outputs", "");
+      for (const row of largest.slice(0, 5)) {
+        parts.push(`- #S${row.step} \`${row.tool}\`: ~${formatTokenCount(row.output_tokens)} tokens (${formatDuration(row.duration_ms)})`);
+      }
+    }
+    parts.push("");
+  }
 
   return parts.join("\n");
 }
@@ -197,10 +241,20 @@ export function buildReport(traj: TrajectoryIR, checker: CheckerResult, attr: At
     `| User turns | ${tel.user_turns ?? 0} |`,
     `| Violations | ${checker.violation_count} |`,
     "",
+  ];
+  if (tel.total_tool_duration_ms != null) {
+    lines.push("## Tool Efficiency", "", "| Metric | Value |", "|--------|-------|");
+    lines.push(`| Total tool time | ${formatDuration(Number(tel.total_tool_duration_ms))} |`);
+    lines.push(`| Total output tokens | ~${formatTokenCount(Number(tel.total_output_tokens ?? 0))} |`);
+    lines.push(`| Avg duration / tool | ${formatDuration(Number(tel.avg_tool_duration_ms ?? 0))} |`);
+    lines.push(`| Avg output tokens / tool | ~${formatTokenCount(Math.round(Number(tel.avg_output_tokens_per_tool ?? 0)))} |`);
+    lines.push("");
+  }
+  lines.push(
     "## Explanation",
     "",
     attr.explanation,
-  ];
+  );
   return lines.join("\n");
 }
 

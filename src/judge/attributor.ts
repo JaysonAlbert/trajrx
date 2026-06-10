@@ -12,6 +12,8 @@ const ACTIONS: Record<string, string[]> = {
     "Cache grep/read results; avoid repeating identical shell commands",
     "Fix root cause before re-running harness/e2e (check logs once, fix config)",
     "Narrow search scope with known file paths from docs",
+    "Cap Read limit/offset; avoid loading multi-MB agent-tools dumps wholesale",
+    "Batch slow Shell/harness runs; set explicit success criteria before retry",
   ],
   mcp: [
     "Batch log queries; define SPL/query template upfront",

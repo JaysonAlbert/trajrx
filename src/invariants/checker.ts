@@ -10,14 +10,21 @@ function aggregateTelemetry(traj: TrajectoryIR, steps: TrajectoryIR["steps"]) {
     for (const n of s.telemetry.tool_names) tool_names[n] = (tool_names[n] ?? 0) + 1;
     for (const m of s.telemetry.mcp_servers) mcp_servers[m] = (mcp_servers[m] ?? 0) + 1;
   }
+  const totalToolDuration = steps.reduce((n, s) => n + (s.telemetry.tool_duration_ms ?? 0), 0);
+  const totalOutputTokens = steps.reduce((n, s) => n + (s.telemetry.tool_output_tokens ?? 0), 0);
+  const totalTools = steps.reduce((n, s) => n + s.telemetry.tool_count, 0);
   return {
     step_count: steps.length,
     user_turns: traj.metadata.user_turns ?? 0,
-    total_tool_calls: steps.reduce((n, s) => n + s.telemetry.tool_count, 0),
+    total_tool_calls: totalTools,
     total_mcp_calls: steps.reduce((n, s) => n + s.telemetry.mcp_count, 0),
     total_shell_calls: steps.reduce((n, s) => n + s.telemetry.shell_count, 0),
     total_read_calls: steps.reduce((n, s) => n + s.telemetry.read_count, 0),
     total_grep_calls: steps.reduce((n, s) => n + s.telemetry.grep_count, 0),
+    total_tool_duration_ms: totalToolDuration,
+    total_output_tokens: totalOutputTokens,
+    avg_tool_duration_ms: totalTools ? Math.round(totalToolDuration / totalTools) : 0,
+    avg_output_tokens_per_tool: totalTools ? Math.round(totalOutputTokens / totalTools) : 0,
     tool_breakdown: Object.fromEntries(Object.entries(tool_names).sort((a, b) => b[1] - a[1])),
     mcp_breakdown: Object.fromEntries(Object.entries(mcp_servers).sort((a, b) => b[1] - a[1])),
   };
