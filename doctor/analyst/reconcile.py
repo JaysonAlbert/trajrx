@@ -25,7 +25,18 @@ def reconcile(
         for cat in sorted(all_cats)
     }
 
-    primary_match = static_primary == manual_primary
+    primary_match = (
+        static_primary == manual_primary
+        or (static_primary == "compound" and manual_primary in (static_attr.get("composite_causes") or []))
+        or (manual_primary in (static_attr.get("composite_causes") or []) and static_primary == manual_primary)
+    )
+    static_composite = static_attr.get("composite_causes") or []
+    manual_secondary = manual_attr.get("secondary_causes") or []
+    if not primary_match and static_primary in manual_secondary:
+        primary_match = True
+        notes_extra = "Manual secondary includes static primary"
+    else:
+        notes_extra = None
 
     # Top-2 overlap: do both methods rank same categories highly?
     static_ranked = sorted(static_scores.items(), key=lambda x: -x[1])[:2]
@@ -45,6 +56,10 @@ def reconcile(
         notes.append(
             f"Primary cause differs: static={static_primary} vs manual={manual_primary}"
         )
+    if static_composite:
+        notes.append(f"Static composite: {', '.join(static_composite)}")
+    if notes_extra:
+        notes.append(notes_extra)
     if top2_overlap:
         notes.append(f"Top-2 overlap: {', '.join(sorted(top2_overlap))}")
     else:
