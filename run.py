@@ -22,6 +22,7 @@ from doctor.judge.attributor import attribute_all
 from doctor.reports.aggregator import write_report, write_metrics
 from doctor.analyst.phase_analyzer import manual_attribution
 from doctor.analyst.reconcile import reconcile, format_reconcile_report
+from doctor.export.flatten import flatten_events_to_markdown, append_attribution_section
 
 
 def banner(msg: str) -> None:
@@ -32,9 +33,30 @@ def ensure_dir(path: str) -> None:
     os.makedirs(path, exist_ok=True)
 
 
-def run_ir(input_path: str, run_dir: str) -> str:
-    banner("Stage 1/4: IR Normalization")
-    raw = load_trajectories(input_path)
+def run_flatten(input_path: str, run_dir: str, raw_trajectories: list | None = None) -> str:
+    banner("Stage 0: Flatten Transcript → Markdown")
+    if raw_trajectories is None:
+        raw_trajectories = load_trajectories(input_path)
+    traj = raw_trajectories[0]
+    events = traj.get("events") or []
+    tid = traj.get("trajectory_id") or os.path.splitext(os.path.basename(input_path))[0]
+    md = flatten_events_to_markdown(
+        events,
+        trajectory_id=tid,
+        source_path=input_path,
+    )
+    out_path = os.path.join(run_dir, f"{tid}.flat.md")
+    with open(out_path, "w", encoding="utf-8") as f:
+        f.write(md)
+    print(f"  Wrote {out_path} ({len(events)} events → flat markdown)")
+    return out_path
+
+
+def run_ir(input_path: str, run_dir: str, raw_trajectories: list | None = None) -> str:
+    banner("Stage 1/5: IR Normalization")
+    if raw_trajectories is None:
+        raw_trajectories = load_trajectories(input_path)
+    raw = raw_trajectories
     fmt = raw[0].get("_format") if raw else None
     if fmt == "cursor_jsonl" or input_path.endswith(".jsonl"):
         data = cursor_ir(raw)
@@ -51,7 +73,7 @@ def run_ir(input_path: str, run_dir: str) -> str:
 
 
 def run_check(ir_path: str, run_dir: str) -> str:
-    banner("Stage 2/4: Invariant Checking")
+    banner("Stage 2/5: Invariant Checking")
     with open(ir_path, "r", encoding="utf-8") as f:
         trajectories = json.load(f)
     results = check_all(trajectories)
@@ -63,7 +85,7 @@ def run_check(ir_path: str, run_dir: str) -> str:
 
 
 def run_judge(ir_path: str, checker_dir: str, run_dir: str) -> str:
-    banner("Stage 3/4: Attribution (Judge)")
+    banner("Stage 3/5: Attribution (Judge)")
     with open(ir_path, "r", encoding="utf-8") as f:
         trajectories = json.load(f)
     violations_path = os.path.join(checker_dir, "violations.json")
@@ -112,8 +134,8 @@ def run_reconcile(ir_path: str, judge_path: str, run_dir: str) -> str:
     return out_dir
 
 
-def run_report(ir_path: str, checker_dir: str, judge_path: str, run_dir: str) -> str:
-    banner("Stage 4/4: Report")
+def run_report(ir_path: str, checker_dir: str, judge_path: str, run_dir: str, flat_md_path: str | None = None) -> str:
+    banner("Stage 4/5: Report")
     with open(ir_path, "r", encoding="utf-8") as f:
         trajectories = json.load(f)
     with open(os.path.join(checker_dir, "violations.json"), "r", encoding="utf-8") as f:
@@ -136,22 +158,54 @@ def run_report(ir_path: str, checker_dir: str, judge_path: str, run_dir: str) ->
     metrics_path = os.path.join(reports_dir, "metrics.json")
     write_metrics(attributions, metrics_path)
     print(f"  Wrote {metrics_path}")
+
+    if flat_md_path and os.path.isfile(flat_md_path):
+        for traj in trajectories:
+            tid = traj["trajectory_id"]
+            vlist = cr_map[tid].get("violations") or []
+            append_attribution_section(flat_md_path, att_map[tid], vlist)
+        print(f"  Appended attribution to {flat_md_path}")
+
     return reports_dir
 
 
-def process_file(input_path: str, run_name: str | None, skip_judge: bool) -> str:
+def flatten_only(input_path: str, output_path: str | None, run_name: str | None) -> str:
+    """Export flat markdown without running attribution pipeline."""
+    from doctor.export.flatten import flatten_file
+    if run_name:
+        run_dir = os.path.join(RUNS_DIR, run_name)
+        ensure_dir(run_dir)
+        raw = load_trajectories(input_path)
+        tid = raw[0].get("trajectory_id") or "transcript"
+        out = output_path or os.path.join(run_dir, f"{tid}.flat.md")
+        events = raw[0].get("events") or []
+        md = flatten_events_to_markdown(events, trajectory_id=tid, source_path=input_path)
+        with open(out, "w", encoding="utf-8") as f:
+            f.write(md)
+        print(f"Wrote {out}")
+        return out
+    return flatten_file(input_path, output_path)
+
+
+def process_file(input_path: str, run_name: str | None, skip_judge: bool, flatten_only_flag: bool = False) -> str:
+    if flatten_only_flag:
+        flatten_only(input_path, None, run_name)
+        return ""
+
     stem = os.path.splitext(os.path.basename(input_path))[0]
     run_name = run_name or f"{stem}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
     run_dir = os.path.join(RUNS_DIR, run_name)
     ensure_dir(run_dir)
 
-    ir_path = run_ir(input_path, run_dir)
+    raw = load_trajectories(input_path)
+    flat_md_path = run_flatten(input_path, run_dir, raw)
+    ir_path = run_ir(input_path, run_dir, raw)
     checker_dir = run_check(ir_path, run_dir)
     if skip_judge:
         print("\n  (--skip-judge: attribution skipped)")
         return run_dir
     judge_path = run_judge(ir_path, checker_dir, run_dir)
-    run_report(ir_path, checker_dir, judge_path, run_dir)
+    run_report(ir_path, checker_dir, judge_path, run_dir, flat_md_path)
     run_reconcile(ir_path, judge_path, run_dir)
     print(f"\nDone. Output: {run_dir}")
     return run_dir
@@ -164,12 +218,18 @@ def main() -> None:
     parser.add_argument("--batch", action="store_true", help="Process all .jsonl in input directory")
     parser.add_argument("--stage", choices=["ir", "check", "judge", "report", "all"], default="all")
     parser.add_argument("--run-dir", help="Existing run dir (for partial stages)")
+    parser.add_argument("--flatten-only", action="store_true", help="Only export flat markdown, skip attribution")
+    parser.add_argument("-o", "--output", help="Output path for --flatten-only")
     parser.add_argument("--skip-judge", action="store_true", help="Skip judge and report")
     args = parser.parse_args()
 
     if not args.input:
         parser.print_help()
         sys.exit(1)
+
+    if args.flatten_only:
+        flatten_only(args.input, args.output, args.run_name)
+        return
 
     if args.batch:
         if not os.path.isdir(args.input):
@@ -180,10 +240,10 @@ def main() -> None:
                 if fn.endswith(".jsonl"):
                     path = os.path.join(root, fn)
                     print(f"\n>>> Processing {path}")
-                    process_file(path, None, args.skip_judge)
+                    process_file(path, None, args.skip_judge, False)
         return
 
-    process_file(args.input, args.run_name, args.skip_judge)
+    process_file(args.input, args.run_name, args.skip_judge, False)
 
 
 if __name__ == "__main__":

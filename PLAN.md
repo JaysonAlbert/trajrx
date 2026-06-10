@@ -1,5 +1,85 @@
 # Doctor — AgentRx-style IDE Agent Attribution Pipeline
 
+## 技术架构
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                        Input Sources                             │
+│  Cursor ~/.cursor/projects/*/agent-transcripts/*.jsonl          │
+│  (future: Codex rollout-trace, hooks OTel)                       │
+└────────────────────────────┬────────────────────────────────────┘
+                             │
+                             ▼
+┌─────────────────────────────────────────────────────────────────┐
+│ Stage 0  export/flatten.py                                       │
+│  JSONL → 平铺 Markdown (.flat.md) — 供 AI 直接阅读               │
+└────────────────────────────┬────────────────────────────────────┘
+                             │
+                             ▼
+┌─────────────────────────────────────────────────────────────────┐
+│ Stage 1  ir/loader.py + ir/cursor_ir.py                         │
+│  Raw events → Trajectory IR (trajectory_id, steps, telemetry)    │
+└────────────────────────────┬────────────────────────────────────┘
+                             │
+                             ▼
+┌─────────────────────────────────────────────────────────────────┐
+│ Stage 2  invariants/presets.py + invariants/checker.py          │
+│  11 条 preset invariant → auditable violation log               │
+└────────────────────────────┬────────────────────────────────────┘
+                             │
+                             ▼
+┌─────────────────────────────────────────────────────────────────┐
+│ Stage 3  judge/attributor.py                                    │
+│  规则聚合 → primary_cause / composite / critical_step           │
+└────────────────────────────┬────────────────────────────────────┘
+                             │
+              ┌──────────────┴──────────────┐
+              ▼                             ▼
+┌──────────────────────────┐   ┌──────────────────────────┐
+│ Stage 4  reports/         │   │ Stage 5  analyst/         │
+│  attribution report .md   │   │  manual heuristic +       │
+│  + append to .flat.md     │   │  reconcile static vs manual│
+└──────────────────────────┘   └──────────────────────────┘
+```
+
+### 模块职责
+
+| 包 | 职责 | 是否用 LLM |
+|----|------|-----------|
+| `doctor/export/` | Transcript 平铺 Markdown | 否 |
+| `doctor/ir/` | 异构 log 归一化为 Trajectory IR | 否 |
+| `doctor/invariants/` | 确定性约束检查 | 否 |
+| `doctor/judge/` |  violation 加权归因 | 否 |
+| `doctor/reports/` | 人类可读报告 | 否 |
+| `doctor/analyst/` | 阶段分析 + 静态/人工对账 | 否 |
+
+### 设计原则（来自 AgentRx）
+
+1. **Checker 先行，Judge 殿后** — 证据必须可审计
+2. **IR 统一异构源** — 同一 schema 走同一套 invariant
+3. **Flat Markdown 面向 AI** — 归因输入与人类 review 共用一份可读 transcript
+
+### 输出目录 (`runs/<name>/`)
+
+```
+runs/<name>/
+├── <session_id>.flat.md      # 平铺 transcript（含末尾 attribution 摘要）
+├── trajectory_ir.json        # 结构化 IR
+├── checker_results/
+│   ├── violations.json
+│   └── static_invariants.json
+├── judge_output/
+│   └── attribution.json
+├── reports/
+│   ├── <session_id>.md
+│   └── metrics.json
+└── reconcile/
+    ├── reconciliation.json
+    └── <session_id>_reconcile.md
+```
+
+---
+
 ## 目标
 
 对 Cursor / Codex 等 IDE agent 的 session transcript 做**工程化低效归因**：
@@ -8,16 +88,18 @@
 ## 方法论（复刻 AgentRx）
 
 ```
-Raw logs → Trajectory IR → Static Invariants → Checker → Judge → Reports
+Raw logs → Flat Markdown → Trajectory IR → Static Invariants → Checker → Judge → Reports → Reconcile
 ```
 
 | Stage | 模块 | 输出 | LLM |
 |-------|------|------|-----|
+| 0 Flatten | `doctor/export/` | `<id>.flat.md` | 否 |
 | 1 IR | `doctor/ir/` | `trajectory_ir.json` | 否 |
 | 2 Static | `doctor/invariants/presets.py` | `static_invariants.json` | 否 |
 | 3 Check | `doctor/invariants/checker.py` | `checker_results/violations.json` | 否 |
 | 4 Judge | `doctor/judge/attributor.py` | `judge_output/attribution.json` | 否（规则聚合） |
-| 5 Report | `doctor/reports/aggregator.py` | `report.md` + `metrics.json` | 否 |
+| 5 Report | `doctor/reports/aggregator.py` | `report.md` + append `.flat.md` | 否 |
+| 6 Reconcile | `doctor/analyst/` | `reconciliation.json` | 否 |
 
 > MVP 跳过 Dynamic Invariants（LLM 逐步生成约束），先用 preset 确定性规则覆盖 80% 场景。
 
@@ -85,10 +167,34 @@ Raw logs → Trajectory IR → Static Invariants → Checker → Judge → Repor
 ## CLI
 
 ```bash
-python run.py <transcript.jsonl> [--run-name NAME] [--batch DIR]
-python run.py <transcript.jsonl> --stage ir|check|judge|report
+# 完整 pipeline（含 flat markdown）
+python run.py <transcript.jsonl> [--run-name NAME]
+
+# 仅导出平铺 markdown
+python run.py <transcript.jsonl> --flatten-only [-o out.md]
+
+# 批量
+python run.py <dir> --batch
+
+# 跳过归因
 python run.py <transcript.jsonl> --skip-judge
 ```
+
+## Flat Markdown 格式
+
+每个 session 输出一份线性 Markdown：
+
+- `# Cursor Session Transcript` + metadata 表
+- `## Task` — 首条用户 query
+- `## User Turn N (#UN)` — 用户消息
+- `## Assistant Step N (#SN, after #UN)` — assistant 一步
+  - 正文文本
+  - `### Tool: Read/Grep/Shell/...` — 结构化工具块
+  - `### Tool: CallMcpTool` — MCP server + args JSON
+- `## Session Stats` — 统计
+- （pipeline 完成后）`## Attribution Summary` — 归因摘要
+
+Step 编号 `#SN` 与 IR `step.index`、checker `step_index` 对齐，方便 AI 交叉引用。
 
 ## 目录结构
 
@@ -98,6 +204,8 @@ doctor/
 ├── pyproject.toml
 ├── run.py
 ├── doctor/
+│   ├── export/
+│   │   └── flatten.py          # JSONL → flat markdown
 │   ├── ir/
 │   │   ├── loader.py
 │   │   ├── cursor_ir.py
