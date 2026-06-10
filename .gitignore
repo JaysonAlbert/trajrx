@@ -6,3 +6,6 @@ runs/
 dist/
 build/
 .DS_Store
+node_modules/
+dist/
+*.tsbuildinfo

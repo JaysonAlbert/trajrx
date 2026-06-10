@@ -1,0 +1,24 @@
+{
+  "name": "doctor",
+  "version": "0.2.0",
+  "description": "IDE agent efficiency attribution pipeline (AgentRx-style)",
+  "type": "module",
+  "main": "dist/cli.js",
+  "bin": {
+    "doctor": "dist/cli.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/cli.js",
+    "dev": "tsx src/cli.ts",
+    "analyze": "tsx src/cli.ts"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.7.0"
+  }
+}
