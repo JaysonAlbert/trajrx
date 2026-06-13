@@ -42,6 +42,13 @@
 │ Stage 4  export/ reports  │   │ Stage 5  analyst/         │
 │  report.md + .flat.md     │   │  reconcile static/manual  │
 └──────────────────────────┘   └──────────────────────────┘
+                             │
+                             ▼ (optional --agent-eval)
+┌─────────────────────────────────────────────────────────────────┐
+│ Stage 6  src/eval/runAgentEval.ts + src/agentCli/               │
+│  eval_context.md → agent CLI (-p) → agent-evaluation.md         │
+│  profiles: cursor-agent | claude | codex                        │
+└─────────────────────────────────────────────────────────────────┘
 ```
 
 ### 目录结构
@@ -58,7 +65,9 @@ doctor/
 │   ├── ir/                 # loader, cursorIr, schema
 │   ├── invariants/         # presets, checker
 │   ├── judge/attributor.ts
-│   └── analyst/reconcile.ts
+│   ├── analyst/reconcile.ts
+│   ├── agentCli/           # cursor | claude | codex CLI profiles
+│   └── eval/               # LLM agent-evaluation stage
 ├── dist/                   # tsc 编译输出
 └── runs/                   # 分析产物（gitignore）
 ```
@@ -72,6 +81,8 @@ doctor/
 | `src/invariants/` | 确定性约束检查 | 否 |
 | `src/judge/` | violation 加权归因 | 否 |
 | `src/analyst/` | 阶段启发式 + 对账 | 否 |
+| `src/agentCli/` | 可插拔 agent CLI 调用（cursor/claude/codex） | 是（外部 CLI） |
+| `src/eval/` | LLM 评估 prompt + 产物写入 | 是（外部 CLI） |
 
 ### 设计原则（AgentRx）
 
@@ -128,6 +139,7 @@ runs/<name>/
 ## 后续扩展
 
 - [ ] Codex rollout-trace IR converter
+- [x] Agent CLI 评估路径（`--agent-eval` / `--agent-eval-only`）
 - [ ] Dynamic invariants（LLM 逐步生成）
 - [ ] Cursor hooks OTel 接入
 - [ ] npm package / VS Code 扩展

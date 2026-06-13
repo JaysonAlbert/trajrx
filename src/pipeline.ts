@@ -11,8 +11,17 @@ import { loadTrajectories } from "./ir/loader.js";
 import type { Attribution, CheckerResult, RawTrajectory, TrajectoryIR } from "./types/index.js";
 import { getRunsDir } from "./config.js";
 import { aggregateSessionToolStats, buildEnrichmentContext, enrichAllToolCalls } from "./enrich/toolMetrics.js";
+import { runAgentEval } from "./eval/runAgentEval.js";
+import type { AgentCliId } from "./agentCli/types.js";
 
 export const RUNS_DIR = getRunsDir();
+
+export interface ProcessOptions {
+  skipJudge?: boolean;
+  agentEval?: boolean;
+  agentCli?: AgentCliId;
+  agentModel?: string;
+}
 
 function banner(msg: string) {
   console.log(`\n${"=".repeat(60)}\n  ${msg}\n${"=".repeat(60)}`);
@@ -145,7 +154,19 @@ function runReconcile(trajectories: TrajectoryIR[], attributions: Attribution[],
   writeFileSync(join(outDir, "reconciliation.json"), JSON.stringify(reconciliations, null, 2), "utf-8");
 }
 
-export function processFile(inputPath: string, runName?: string, skipJudge = false) {
+async function runAgentEvalStage(runDir: string, inputPath: string, opts: ProcessOptions) {
+  banner("Stage 6/6: Agent Evaluation (LLM via agent CLI)");
+  const record = await runAgentEval({
+    runDir,
+    profileId: opts.agentCli,
+    model: opts.agentModel,
+    sourceTranscriptPath: inputPath,
+  });
+  console.log(`  Wrote ${record.output_path} via ${record.agent_cli} (${record.duration_ms}ms)`);
+}
+
+export async function processFile(inputPath: string, runName?: string, opts: ProcessOptions = {}) {
+  const skipJudge = opts.skipJudge ?? false;
   const stem = basename(inputPath, extname(inputPath));
   const name = runName ?? `${stem}_${new Date().toISOString().replace(/[-:T]/g, "").slice(0, 15)}`;
   const runDir = join(RUNS_DIR, name);
@@ -165,7 +186,18 @@ export function processFile(inputPath: string, runName?: string, skipJudge = fal
   const { attributions } = runJudge(trajectories, results, runDir);
   runReport(trajectories, results, attributions, runDir, flatMdPath);
   runReconcile(trajectories, attributions, runDir);
+
+  if (opts.agentEval) {
+    await runAgentEvalStage(runDir, inputPath, opts);
+  }
+
   console.log(`\nDone. Output: ${runDir}`);
+  return runDir;
+}
+
+export async function agentEvalOnly(runDir: string, opts: ProcessOptions = {}) {
+  await runAgentEvalStage(runDir, runDir, opts);
+  console.log(`\nAgent evaluation done: ${runDir}`);
   return runDir;
 }
 

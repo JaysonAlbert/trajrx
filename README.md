@@ -1,6 +1,9 @@
 # cursor-agent-doctor
 
-IDE agent efficiency attribution pipeline (AgentRx-style). Flattens Cursor JSONL transcripts to readable Markdown, runs deterministic invariant checks, and attributes inefficiency to **context / tool / MCP / skill**.
+IDE agent efficiency attribution pipeline (AgentRx-style). Two paths:
+
+1. **Rules (default)** — flatten → IR → invariant checker → rule attributor → reconcile
+2. **LLM (optional)** — invoke an external agent CLI (`cursor-agent`, `claude`, `codex`) to read artifacts and write `agent-evaluation.md`
 
 ## Install (global CLI)
 
@@ -34,6 +37,16 @@ doctor transcript.jsonl --flatten-only -o session.flat.md
 
 # Batch all .jsonl under a directory
 doctor ~/.cursor/projects --batch
+
+# Full pipeline + LLM agent evaluation (cursor-agent --mode ask --model auto -p)
+doctor transcript.jsonl --run-name my-analysis --agent-eval
+
+# Re-run LLM eval on an existing run directory
+doctor runs/my-analysis --agent-eval-only --agent-cli cursor --agent-model auto
+
+# Use Claude Code or Codex CLI instead
+doctor transcript.jsonl --agent-eval --agent-cli claude --agent-model sonnet
+doctor transcript.jsonl --agent-eval --agent-cli codex --agent-model o3
 ```
 
 ## Environment
@@ -42,6 +55,9 @@ doctor ~/.cursor/projects --batch
 |----------|---------|---------|
 | `DOCTOR_RUNS_DIR` | `./runs` (cwd) | Output directory for analysis runs |
 | `DOCTOR_HOME` | `~/.doctor` | Optional home for runs when set |
+| `DOCTOR_AGENT_EVAL` | off | Set `1` to enable `--agent-eval` by default |
+| `DOCTOR_AGENT_CLI` | `cursor` | Default agent CLI: `cursor` \| `claude` \| `codex` |
+| `DOCTOR_AGENT_MODEL` | profile default | Model flag passed to agent CLI (`auto` for cursor) |
 
 ## Test fixture
 

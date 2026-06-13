@@ -17,3 +17,9 @@ export function getRunsDir(): string {
 export function getDoctorHome(): string {
   return process.env.DOCTOR_HOME ?? join(homedir(), ".doctor");
 }
+
+/** Enable LLM agent-evaluation stage when true (env: DOCTOR_AGENT_EVAL=1). */
+export function isAgentEvalEnabled(): boolean {
+  const v = process.env.DOCTOR_AGENT_EVAL?.trim().toLowerCase();
+  return v === "1" || v === "true" || v === "yes";
+}

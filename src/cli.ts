@@ -1,7 +1,9 @@
 #!/usr/bin/env node
-import { flattenOnly, processFile, regenerateAnalysisFromRunDir } from "./pipeline.js";
-import { readdirSync, statSync } from "node:fs";
+import { existsSync, readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
+import type { AgentCliId } from "./agentCli/types.js";
+import { isAgentEvalEnabled } from "./config.js";
+import { agentEvalOnly, flattenOnly, processFile, regenerateAnalysisFromRunDir } from "./pipeline.js";
 
 function parseArgs(argv: string[]) {
   const args = argv.slice(2);
@@ -12,6 +14,10 @@ function parseArgs(argv: string[]) {
   let flattenOnlyFlag = false;
   let skipJudge = false;
   let analysisOnly = false;
+  let agentEvalOnlyFlag = false;
+  let agentEval = isAgentEvalEnabled();
+  let agentCli: AgentCliId | undefined;
+  let agentModel: string | undefined;
 
   for (let i = 0; i < args.length; i++) {
     const a = args[i];
@@ -21,10 +27,15 @@ function parseArgs(argv: string[]) {
     else if (a === "--flatten-only") flattenOnlyFlag = true;
     else if (a === "--skip-judge") skipJudge = true;
     else if (a === "--analysis-only") analysisOnly = true;
+    else if (a === "--agent-eval") agentEval = true;
+    else if (a === "--skip-agent-eval") agentEval = false;
+    else if (a === "--agent-eval-only") agentEvalOnlyFlag = true;
+    else if (a === "--agent-cli") agentCli = args[++i] as AgentCliId;
+    else if (a === "--agent-model") agentModel = args[++i];
     else if (!a.startsWith("-")) input = a;
   }
 
-  return { input, runName, output, batch, flattenOnlyFlag, skipJudge, analysisOnly };
+  return { input, runName, output, batch, flattenOnlyFlag, skipJudge, analysisOnly, agentEvalOnlyFlag, agentEval, agentCli, agentModel };
 }
 
 function walkJsonl(dir: string): string[] {
@@ -38,32 +49,80 @@ function walkJsonl(dir: string): string[] {
   return out.sort();
 }
 
-const { input, runName, output, batch, flattenOnlyFlag, skipJudge, analysisOnly } = parseArgs(process.argv);
+function isRunDir(path: string): boolean {
+  return existsSync(join(path, "trajectory_ir.json")) && existsSync(join(path, "judge_output", "attribution.json"));
+}
 
-if (!input) {
-  console.log(`Usage:
-  doctor <transcript.jsonl> [--run-name NAME]
+async function main() {
+  const {
+    input,
+    runName,
+    output,
+    batch,
+    flattenOnlyFlag,
+    skipJudge,
+    analysisOnly,
+    agentEvalOnlyFlag,
+    agentEval,
+    agentCli,
+    agentModel,
+  } = parseArgs(process.argv);
+
+  if (!input) {
+    console.log(`Usage:
+  doctor <transcript.jsonl> [--run-name NAME] [--agent-eval]
   doctor <transcript.jsonl> --flatten-only [-o out.md]
   doctor <run-dir> --analysis-only
-  doctor <dir> --batch`);
-  process.exit(1);
-}
+  doctor <run-dir> --agent-eval-only [--agent-cli cursor|claude|codex] [--agent-model MODEL]
+  doctor <dir> --batch [--agent-eval]
 
-if (analysisOnly) {
-  regenerateAnalysisFromRunDir(input);
-  process.exit(0);
-}
+Agent evaluation (LLM path):
+  --agent-eval          Run agent CLI evaluation after rule pipeline
+  --skip-agent-eval     Disable (default unless DOCTOR_AGENT_EVAL=1)
+  --agent-eval-only     Re-run LLM eval on an existing run directory
+  --agent-cli           cursor (default) | claude | codex
+  --agent-model         e.g. auto (cursor), sonnet (claude), o3 (codex)
 
-if (flattenOnlyFlag) {
-  flattenOnly(input, output, runName);
-  process.exit(0);
-}
-
-if (batch) {
-  for (const p of walkJsonl(input)) {
-    console.log(`\n>>> Processing ${p}`);
-    processFile(p, undefined, skipJudge);
+Environment:
+  DOCTOR_AGENT_EVAL=1   Enable --agent-eval by default
+  DOCTOR_AGENT_CLI      Default agent CLI profile
+  DOCTOR_AGENT_MODEL    Default model for agent CLI`);
+    process.exit(1);
   }
-} else {
-  processFile(input, runName, skipJudge);
+
+  const processOpts = { skipJudge, agentEval, agentCli, agentModel };
+
+  if (agentEvalOnlyFlag) {
+    if (!isRunDir(input)) {
+      console.error(`--agent-eval-only requires a completed run directory: ${input}`);
+      process.exit(1);
+    }
+    await agentEvalOnly(input, processOpts);
+    return;
+  }
+
+  if (analysisOnly) {
+    regenerateAnalysisFromRunDir(input);
+    return;
+  }
+
+  if (flattenOnlyFlag) {
+    flattenOnly(input, output, runName);
+    return;
+  }
+
+  if (batch) {
+    for (const p of walkJsonl(input)) {
+      console.log(`\n>>> Processing ${p}`);
+      await processFile(p, undefined, processOpts);
+    }
+    return;
+  }
+
+  await processFile(input, runName, processOpts);
 }
+
+main().catch((err) => {
+  console.error(err instanceof Error ? err.message : err);
+  process.exit(1);
+});
