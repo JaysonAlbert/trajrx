@@ -40,6 +40,9 @@ trajrx transcript.jsonl --flatten-only -o session.flat.md
 # Batch all .jsonl under a directory
 trajrx ~/.cursor/projects --batch
 
+# Codex rollout trace (auto-detected)
+trajrx ~/.codex/sessions/2026/06/15/rollout-*.jsonl --run-name codex-analysis
+
 # Full pipeline + LLM agent evaluation (cursor-agent --mode ask --model auto -p)
 trajrx transcript.jsonl --run-name my-analysis --agent-eval
 
@@ -68,3 +71,7 @@ npm run analyze -- test/fixtures/qis-strategy-index-analysis.jsonl --run-name qi
 ```
 
 See [PLAN.md](./PLAN.md) for architecture.
+
+### Codex vs Cursor
+
+TrajRx auto-detects transcript format. Codex rollout traces use `event_msg` + `function_call` events (not Cursor's `role`/`tool_use`). Codex-specific invariants include background `write_stdin` polling (`INV-CODEX-001`) and long step gaps (`INV-CODEX-002`).

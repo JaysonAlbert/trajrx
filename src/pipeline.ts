@@ -7,10 +7,16 @@ import { buildAnalysisReport, buildCommandBreakdownJson } from "./export/analysi
 import { checkAll, writeCheckerResults } from "./invariants/checker.js";
 import { attributeAll } from "./judge/attributor.js";
 import { cursorIr } from "./ir/cursorIr.js";
+import { codexIr } from "./ir/codexIr.js";
+import { detectTranscriptFormat } from "./ir/detectFormat.js";
+import { parseCodexRollout } from "./ir/codexParser.js";
 import { loadTrajectories } from "./ir/loader.js";
 import type { Attribution, CheckerResult, RawTrajectory, TrajectoryIR } from "./types/index.js";
+import type { CodexRolloutEvent } from "./types/codex.js";
 import { getRunsDir } from "./config.js";
 import { aggregateSessionToolStats, buildEnrichmentContext, enrichAllToolCalls } from "./enrich/toolMetrics.js";
+import { enrichCodexSession } from "./enrich/codexToolMetrics.js";
+import { flattenCodexToMarkdown } from "./export/codexFlatten.js";
 import { runAgentEval } from "./eval/runAgentEval.js";
 import type { AgentCliId } from "./agentCli/types.js";
 
@@ -31,35 +37,69 @@ function ensureDir(path: string) {
   mkdirSync(path, { recursive: true });
 }
 
+function isCodexTrajectory(raw: RawTrajectory): boolean {
+  return raw._format === "codex_rollout" || detectTranscriptFormat(raw.events) === "codex_rollout";
+}
+
 function runEnrichment(inputPath: string, raw: RawTrajectory[]) {
   banner("Stage 0a: Tool Efficiency Enrichment");
   const traj = raw[0]!;
+  if (isCodexTrajectory(traj)) {
+    const session = parseCodexRollout(traj.events as CodexRolloutEvent[], traj.trajectory_id);
+    const { metricsMap, sessionToolStats } = enrichCodexSession(session);
+    console.log(`  format: codex_rollout, events: ${traj.events.length}`);
+    console.log(`  background sessions: ${sessionToolStats.background_sessions.length}, thinking gaps: ${sessionToolStats.thinking_gaps_ms.length}`);
+    console.log(`  total tool time: ${Math.round(sessionToolStats.total_duration_ms / 1000)}s, output tokens: ~${sessionToolStats.total_output_tokens.toLocaleString()}`);
+    return { metricsMap, sessionToolStats: sessionToolStats as unknown as ReturnType<typeof aggregateSessionToolStats>, ctx: null, codexSession: session };
+  }
   const ctx = buildEnrichmentContext(inputPath);
-  const metricsMap = enrichAllToolCalls(traj.events, ctx);
-  const sessionToolStats = aggregateSessionToolStats(traj.events, metricsMap);
-  console.log(`  terminals: ${ctx.terminals.length}, agent-tools: ${ctx.agentToolsTimeline.length}`);
+  const metricsMap = enrichAllToolCalls(traj.events as Parameters<typeof enrichAllToolCalls>[0], ctx);
+  const sessionToolStats = aggregateSessionToolStats(traj.events as Parameters<typeof aggregateSessionToolStats>[0], metricsMap);
+  console.log(`  format: cursor, terminals: ${ctx.terminals.length}, agent-tools: ${ctx.agentToolsTimeline.length}`);
   console.log(`  total tool time: ${Math.round(sessionToolStats.total_duration_ms / 1000)}s, output tokens: ~${sessionToolStats.total_output_tokens.toLocaleString()}`);
-  return { metricsMap, sessionToolStats, ctx };
+  return { metricsMap, sessionToolStats, ctx, codexSession: null };
 }
 
-function runFlatten(inputPath: string, runDir: string, raw: RawTrajectory[], metricsMap: ReturnType<typeof enrichAllToolCalls>, sessionToolStats: ReturnType<typeof aggregateSessionToolStats>) {
+function runFlatten(
+  inputPath: string,
+  runDir: string,
+  raw: RawTrajectory[],
+  metricsMap: ReturnType<typeof enrichAllToolCalls>,
+  sessionToolStats: ReturnType<typeof aggregateSessionToolStats>,
+  codexSession: ReturnType<typeof parseCodexRollout> | null
+) {
   banner("Stage 0b: Flatten Transcript → Markdown");
   const traj = raw[0]!;
-  const md = flattenEventsToMarkdown(traj.events, {
-    trajectoryId: traj.trajectory_id,
-    sourcePath: inputPath,
-    toolMetrics: metricsMap,
-    sessionToolStats: sessionToolStats as unknown as Record<string, unknown>,
-  });
+  const md = codexSession
+    ? flattenCodexToMarkdown(traj.events as CodexRolloutEvent[], {
+        trajectoryId: traj.trajectory_id,
+        sourcePath: inputPath,
+        toolMetrics: metricsMap,
+        sessionToolStats: sessionToolStats as unknown as import("./enrich/codexToolMetrics.js").CodexSessionToolStats,
+      })
+    : flattenEventsToMarkdown(traj.events as Parameters<typeof flattenEventsToMarkdown>[0], {
+        trajectoryId: traj.trajectory_id,
+        sourcePath: inputPath,
+        toolMetrics: metricsMap,
+        sessionToolStats: sessionToolStats as unknown as Record<string, unknown>,
+      });
   const outPath = join(runDir, `${traj.trajectory_id}.flat.md`);
   writeFileSync(outPath, md, "utf-8");
   console.log(`  Wrote ${outPath} (${traj.events.length} events → flat markdown)`);
   return outPath;
 }
 
-function runIr(raw: RawTrajectory[], runDir: string, metricsMap: ReturnType<typeof enrichAllToolCalls>, sessionToolStats: ReturnType<typeof aggregateSessionToolStats>): { irPath: string; trajectories: TrajectoryIR[] } {
+function runIr(
+  raw: RawTrajectory[],
+  runDir: string,
+  metricsMap: ReturnType<typeof enrichAllToolCalls>,
+  sessionToolStats: ReturnType<typeof aggregateSessionToolStats>
+): { irPath: string; trajectories: TrajectoryIR[] } {
   banner("Stage 1/5: IR Normalization");
-  const data = cursorIr(raw, metricsMap, sessionToolStats as unknown as Record<string, unknown>);
+  const traj = raw[0]!;
+  const data = isCodexTrajectory(traj)
+    ? codexIr(traj.events as CodexRolloutEvent[], traj.trajectory_id, metricsMap, sessionToolStats as unknown as Record<string, unknown>)
+    : cursorIr(raw, metricsMap, sessionToolStats as unknown as Record<string, unknown>);
   const outPath = join(runDir, "trajectory_ir.json");
   writeFileSync(outPath, JSON.stringify(data, null, 2), "utf-8");
   const toolMetricsPath = join(runDir, "tool_efficiency.json");
@@ -173,8 +213,8 @@ export async function processFile(inputPath: string, runName?: string, opts: Pro
   ensureDir(runDir);
 
   const raw = loadTrajectories(inputPath);
-  const { metricsMap, sessionToolStats } = runEnrichment(inputPath, raw);
-  const flatMdPath = runFlatten(inputPath, runDir, raw, metricsMap, sessionToolStats);
+  const { metricsMap, sessionToolStats, codexSession } = runEnrichment(inputPath, raw);
+  const flatMdPath = runFlatten(inputPath, runDir, raw, metricsMap, sessionToolStats, codexSession);
   const { trajectories } = runIr(raw, runDir, metricsMap, sessionToolStats);
   const { results } = runCheck(trajectories, runDir);
 
@@ -218,7 +258,9 @@ export function regenerateAnalysisFromRunDir(runDir: string) {
 export function flattenOnly(inputPath: string, outputPath?: string, runName?: string) {
   const raw = loadTrajectories(inputPath);
   const traj = raw[0]!;
-  const md = flattenEventsToMarkdown(traj.events, { trajectoryId: traj.trajectory_id, sourcePath: inputPath });
+  const md = isCodexTrajectory(traj)
+    ? flattenCodexToMarkdown(traj.events as CodexRolloutEvent[], { trajectoryId: traj.trajectory_id, sourcePath: inputPath })
+    : flattenEventsToMarkdown(traj.events as Parameters<typeof flattenEventsToMarkdown>[0], { trajectoryId: traj.trajectory_id, sourcePath: inputPath });
   let out = outputPath;
   if (!out) {
     if (runName) {

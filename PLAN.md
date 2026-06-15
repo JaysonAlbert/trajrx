@@ -9,7 +9,7 @@
 ┌─────────────────────────────────────────────────────────────────┐
 │                        Input Sources                             │
 │  Cursor ~/.cursor/projects/*/agent-transcripts/*.jsonl          │
-│  (future: Codex rollout-trace, hooks OTel)                       │
+│  Codex ~/.codex/sessions/**/rollout-*.jsonl                      │
 └────────────────────────────┬────────────────────────────────────┘
                              │
                              ▼
@@ -138,7 +138,7 @@ runs/<name>/
 
 ## 后续扩展
 
-- [ ] Codex rollout-trace IR converter
+- [x] Codex rollout-trace IR converter (`src/ir/codexParser.ts`, `codexIr.ts`, `codexToolMetrics.ts`)
 - [x] Agent CLI 评估路径（`--agent-eval` / `--agent-eval-only`）
 - [ ] Dynamic invariants（LLM 逐步生成）
 - [ ] Cursor hooks OTel 接入

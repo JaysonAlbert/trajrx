@@ -22,3 +22,18 @@ trajrx test/fixtures/qis-strategy-index-analysis.jsonl --run-name qis-fixture
 ```
 
 Expected: `primary_cause=tool` (or compound tool+context), `critical_step=20`, 11 violations.
+
+## `codex-autocall-fee-bootstrap.jsonl`
+
+Codex rollout trace (truncated) for ZYTGXT-117563 harness bootstrap session.
+
+| Field | Value |
+|-------|-------|
+| Task | 启动 Autocall 费用字段联调环境（Docker + 前端 worktree） |
+| Source | Codex `rollout-2026-06-15T11-03-56-*.jsonl` (first ~220 events) |
+
+```bash
+npm run analyze -- test/fixtures/codex-autocall-fee-bootstrap.jsonl --run-name codex-fixture
+```
+
+Expected: `primary_cause=compound`, violations include `INV-CODEX-001` (background pnpm poll) and `INV-CODEX-002` (umi --version gap).

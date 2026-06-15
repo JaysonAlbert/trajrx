@@ -42,7 +42,7 @@ function sqlSnippet(args: Record<string, unknown> | undefined): string {
 
 export function commandFingerprint(tool: string, input: Record<string, unknown>): { fingerprint: string; command: string } {
   if (tool === "Shell") {
-    const cmd = normalizeCmd(String(input.command ?? ""));
+    const cmd = normalizeCmd(String(input.command ?? input.cmd ?? ""));
     return { fingerprint: `shell::${cmd}`, command: cmd };
   }
   if (tool === "Read") {

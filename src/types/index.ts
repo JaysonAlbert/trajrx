@@ -1,3 +1,5 @@
+import type { CodexRolloutEvent } from "./codex.js";
+
 export type Severity = "low" | "medium" | "high" | "critical";
 export type Category = "context" | "tool" | "mcp" | "skill" | "unknown";
 
@@ -62,6 +64,7 @@ export interface TrajectoryIR {
     step_count?: number;
     user_turns?: number;
     tool_efficiency?: Record<string, unknown>;
+    codex?: Record<string, unknown>;
   };
   steps: TrajectoryStep[];
 }
@@ -69,9 +72,9 @@ export interface TrajectoryIR {
 export interface RawTrajectory {
   trajectory_id: string;
   instruction: string;
-  events: CursorEvent[];
+  events: Array<CursorEvent | CodexRolloutEvent>;
   _source_path?: string;
-  _format?: string;
+  _format?: "cursor" | "codex_rollout";
 }
 
 export interface CursorEvent {

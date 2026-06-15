@@ -223,10 +223,63 @@ const invSkill002: CheckFn = (traj, steps) => {
   if (!instr.includes("harness")) return [];
   const readHarness = steps.some((s) =>
     s.telemetry.read_paths.some((p) => p.includes("harness/SKILL.md")) ||
-    s.telemetry.skill_reads.some((p) => p.includes("harness/SKILL.md") || p.toLowerCase().includes("skills/harness"))
+    s.telemetry.skill_reads.some((p) => p.includes("harness/SKILL.md") || p.toLowerCase().includes("skills/harness")) ||
+    s.telemetry.shell_cmds.some((c) => c.includes("harness/SKILL.md") || c.includes("skills/harness"))
   );
   if (!readHarness) {
     return [v("INV-SKILL-002", "skill", 1, "low", "Task mentions harness but harness SKILL.md was not read early", { instruction_snippet: instr.slice(0, 200) })];
+  }
+  return [];
+};
+
+const invCodex001: CheckFn = (traj, steps) => {
+  const eff = traj.metadata.tool_efficiency as { background_sessions?: Array<{ session_id: number; poll_count: number; total_wall_ms: number; command: string; first_step?: number }> } | undefined;
+  const sessions = eff?.background_sessions ?? [];
+  const out: Violation[] = [];
+  for (const bg of sessions) {
+    if (bg.poll_count >= 3 && bg.total_wall_ms >= 60_000) {
+      out.push(v("INV-CODEX-001", "tool", bg.first_step ?? steps[0]?.index ?? 1, "high",
+        `Background exec session ${bg.session_id} polled ${bg.poll_count} times (~${Math.round(bg.total_wall_ms / 1000)}s wall)`,
+        { session_id: bg.session_id, poll_count: bg.poll_count, total_wall_ms: bg.total_wall_ms, command: bg.command.slice(0, 200) }));
+    }
+  }
+  return out;
+};
+
+const invCodex002: CheckFn = (traj, steps) => {
+  const eff = traj.metadata.tool_efficiency as { thinking_gaps_ms?: Array<{ after_step: number; gap_ms: number; label: string }> } | undefined;
+  const gaps = eff?.thinking_gaps_ms ?? [];
+  const out: Violation[] = [];
+  for (const gap of gaps) {
+    if (gap.gap_ms >= 120_000) {
+      out.push(v("INV-CODEX-002", "context", gap.after_step, "high",
+        `Long idle gap ${Math.round(gap.gap_ms / 1000)}s before next step (model/tool wait)`,
+        { gap_ms: gap.gap_ms, label: gap.label.slice(0, 200) }));
+    }
+  }
+  return out;
+};
+
+const invCodex003: CheckFn = (_t, steps) => {
+  let discovery = 0;
+  let envUp = 0;
+  let firstDiscovery = 0;
+  for (const s of steps.slice(0, 15)) {
+    for (const cmd of s.telemetry.shell_cmds) {
+      const lower = cmd.toLowerCase();
+      if (/^(find|rg|grep|ls|sed|cat)\s/.test(lower) || lower.includes(" --help") || lower.includes("worktree list")) {
+        discovery++;
+        if (!firstDiscovery) firstDiscovery = s.index;
+      }
+      if (lower.includes("harness env up") || lower.includes("pnpm install") || lower.includes("pnpm run serve")) {
+        envUp++;
+      }
+    }
+  }
+  if (discovery >= 8 && envUp === 0) {
+    return [v("INV-CODEX-003", "context", firstDiscovery || 1, "medium",
+      `Extended discovery (${discovery} search/help cmds) before environment bootstrap`,
+      { discovery_cmds: discovery, env_up_cmds: envUp })];
   }
   return [];
 };
@@ -247,6 +300,9 @@ export const PRESET_INVARIANTS: Invariant[] = [
   { invariant_id: "INV-MCP-002", category: "mcp", description: "MCP thrashing", check: invMcp002 },
   { invariant_id: "INV-SKILL-001", category: "skill", description: "Skill read but over-explore", check: invSkill001 },
   { invariant_id: "INV-SKILL-002", category: "skill", description: "Missing harness skill", check: invSkill002 },
+  { invariant_id: "INV-CODEX-001", category: "tool", description: "Codex background exec polling", check: invCodex001 },
+  { invariant_id: "INV-CODEX-002", category: "context", description: "Codex long thinking gap", check: invCodex002 },
+  { invariant_id: "INV-CODEX-003", category: "context", description: "Codex discovery before bootstrap", check: invCodex003 },
 ];
 
 export function exportStaticInvariants() {

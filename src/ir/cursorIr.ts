@@ -1,4 +1,4 @@
-import type { RawTrajectory, Substep, TrajectoryIR, TrajectoryStep, ToolExecutionMetrics } from "../types/index.js";
+import type { CursorEvent, RawTrajectory, Substep, TrajectoryIR, TrajectoryStep, ToolExecutionMetrics } from "../types/index.js";
 import { validateIr } from "./schema.js";
 
 const USER_QUERY_RE = /<user_query>\s*(.*?)\s*<\/user_query>/s;
@@ -26,7 +26,7 @@ function toolContent(inp: Record<string, unknown>): string {
 }
 
 function parseAssistantContent(
-  contentList: NonNullable<NonNullable<RawTrajectory["events"][0]["message"]>["content"]>,
+  contentList: NonNullable<NonNullable<CursorEvent["message"]>["content"]>,
   stepIndex: number,
   metricsMap?: Map<string, ToolExecutionMetrics>
 ): Substep[] {
@@ -115,7 +115,7 @@ export function cursorIr(trajectories: RawTrajectory[], metricsMap?: Map<string,
   const out: TrajectoryIR[] = [];
 
   for (const traj of trajectories) {
-    const events = traj.events ?? [];
+    const events = traj.events as import("../types/index.js").CursorEvent[];
     let instruction = traj.instruction ?? "";
     let userTurn = 0;
     const steps: TrajectoryStep[] = [];

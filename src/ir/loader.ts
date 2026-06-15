@@ -1,6 +1,8 @@
 import { readFileSync } from "node:fs";
 import { basename, extname } from "node:path";
 import type { CursorEvent, RawTrajectory } from "../types/index.js";
+import type { CodexRolloutEvent } from "../types/codex.js";
+import { detectTranscriptFormat } from "./detectFormat.js";
 
 const PREFERRED_KEYS = ["traj", "events", "messages", "trajectory", "spans"] as const;
 
@@ -38,18 +40,19 @@ export function loadTrajectories(path: string): RawTrajectory[] {
   }
 
   if (path.endsWith(".jsonl") || looksLikeJsonl(raw)) {
-    const events: CursorEvent[] = [];
+    const events: Array<CursorEvent | CodexRolloutEvent> = [];
     for (const line of raw.split("\n")) {
       const ln = line.trim();
       if (!ln) continue;
-      events.push(JSON.parse(ln) as CursorEvent);
+      events.push(JSON.parse(ln) as CursorEvent | CodexRolloutEvent);
     }
+    const format = detectTranscriptFormat(events);
     return [{
       trajectory_id: defaultTid,
       instruction: "",
       events,
       _source_path: path,
-      _format: "cursor_jsonl",
+      _format: format,
     }];
   }
 
