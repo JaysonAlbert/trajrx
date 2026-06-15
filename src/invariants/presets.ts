@@ -233,14 +233,15 @@ const invSkill002: CheckFn = (traj, steps) => {
 };
 
 const invCodex001: CheckFn = (traj, steps) => {
-  const eff = traj.metadata.tool_efficiency as { background_sessions?: Array<{ session_id: number; poll_count: number; total_wall_ms: number; command: string; first_step?: number }> } | undefined;
+  const eff = traj.metadata.tool_efficiency as { background_sessions?: Array<{ session_id: number; poll_count: number; total_wall_ms: number; aggregated_ms?: number; command: string; first_step?: number }> } | undefined;
   const sessions = eff?.background_sessions ?? [];
   const out: Violation[] = [];
   for (const bg of sessions) {
-    if (bg.poll_count >= 3 && bg.total_wall_ms >= 60_000) {
+    const wall = bg.aggregated_ms ?? bg.total_wall_ms;
+    if (bg.poll_count >= 3 && wall >= 60_000) {
       out.push(v("INV-CODEX-001", "tool", bg.first_step ?? steps[0]?.index ?? 1, "high",
-        `Background exec session ${bg.session_id} polled ${bg.poll_count} times (~${Math.round(bg.total_wall_ms / 1000)}s wall)`,
-        { session_id: bg.session_id, poll_count: bg.poll_count, total_wall_ms: bg.total_wall_ms, command: bg.command.slice(0, 200) }));
+        `Background exec session ${bg.session_id} polled ${bg.poll_count} times (~${Math.round(wall / 1000)}s wall)`,
+        { session_id: bg.session_id, poll_count: bg.poll_count, total_wall_ms: wall, command: bg.command.slice(0, 200) }));
     }
   }
   return out;

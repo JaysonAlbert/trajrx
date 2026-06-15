@@ -1,4 +1,4 @@
-import { classifyExecCommand, execCommandLabel } from "../enrich/codexToolMetrics.js";
+import { classifyExecCommand, execCommandLabel, extractRgPattern } from "../enrich/codexToolMetrics.js";
 import { flattenCodexSteps, parseCodexRollout } from "./codexParser.js";
 import type { CodexRolloutEvent } from "../types/codex.js";
 import type { Substep, ToolExecutionMetrics, TrajectoryIR, TrajectoryStep } from "../types/index.js";
@@ -32,12 +32,25 @@ function buildSubsteps(
     subIdx++;
     toolIndex++;
     const mapped = mapToolName(tool.name, tool.input);
+    const toolInput: Record<string, unknown> = {
+      ...tool.input,
+      _codex_tool: tool.name,
+      _codex_output_preview: tool.output.slice(0, 2000),
+    };
+    if (mapped === "Grep") {
+      const pat = extractRgPattern(execCommandLabel(tool.input));
+      if (pat) toolInput.pattern = pat;
+    }
+    if (mapped === "Read") {
+      const path = classifyExecCommand(execCommandLabel(tool.input)).read_path;
+      if (path) toolInput.path = path;
+    }
     substeps.push({
       sub_index: subIdx,
       role: `tool:${mapped}`,
       content: JSON.stringify(tool.input).slice(0, 4000),
       tool_name: mapped,
-      tool_input: { ...tool.input, _codex_tool: tool.name, _codex_output_preview: tool.output.slice(0, 2000) },
+      tool_input: toolInput,
       execution: metricsMap?.get(`${stepIndex}:t${toolIndex}`),
     });
   }
@@ -70,7 +83,7 @@ function stepTelemetry(substeps: Substep[], userTurn: number) {
       if (cmd.includes("SKILL.md") || cmd.includes("/skills/")) skill_reads.push(cmd);
     }
     if (name === "Grep") {
-      const pat = String(inp.pattern ?? "");
+      const pat = String(inp.pattern ?? "") || extractRgPattern(String(inp.cmd ?? ""));
       if (pat) grep_patterns.push(pat);
     }
     if (name === "Read") {

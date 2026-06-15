@@ -55,11 +55,11 @@ export function commandFingerprint(tool: string, input: Record<string, unknown>)
     return { fingerprint: `read::${path}::${extra.join("|")}`, command };
   }
   if (tool === "Grep") {
-    const command = `pattern=\`${input.pattern ?? ""}\` path=\`${input.path ?? "."}\`${input.glob ? ` glob=\`${input.glob}\`` : ""}`;
-    return {
-      fingerprint: `grep::${input.pattern}::${input.path ?? ""}::${input.glob ?? ""}`,
-      command,
-    };
+    const pattern = String(input.pattern ?? input.cmd ?? "");
+    const extracted = pattern.includes("rg") || pattern.includes("grep") ? pattern : String(input.pattern ?? "");
+    const path = String(input.path ?? ".");
+    const command = `pattern=\`${extracted.slice(0, 120)}\` path=\`${path}\``;
+    return { fingerprint: `grep::${extracted}::${path}`, command };
   }
   if (tool === "Glob") {
     const command = `glob=\`${input.glob_pattern ?? ""}\`${input.target_directory ? ` dir=\`${input.target_directory}\`` : ""}`;

@@ -1,5 +1,5 @@
 import { estimateTokens } from "./toolMetrics.js";
-import type { CodexToolCall, ParsedCodexSession } from "../types/codex.js";
+import type { ParsedCodexSession } from "../types/codex.js";
 import type { ToolExecutionMetrics } from "../types/index.js";
 import { flattenCodexSteps } from "../ir/codexParser.js";
 
@@ -20,11 +20,21 @@ export interface CodexSessionToolStats {
     poll_count: number;
     total_wall_ms: number;
     first_step: number;
+    aggregated_ms?: number;
   }>;
   by_tool: Record<string, { count: number; total_duration_ms: number; total_output_tokens: number }>;
   slowest: Array<{ step: number; sub_index: number; tool: string; duration_ms: number; output_tokens: number; command: string }>;
   largest_outputs: Array<{ step: number; sub_index: number; tool: string; duration_ms: number; output_tokens: number; command: string }>;
   thinking_gaps_ms: Array<{ after_step: number; gap_ms: number; label: string }>;
+}
+
+interface SessionMember {
+  key: string;
+  name: string;
+  step: number;
+  toolIndex: number;
+  label: string;
+  metrics: ToolExecutionMetrics;
 }
 
 export function parseCodexOutputMetrics(output: string, input: Record<string, unknown>): ToolExecutionMetrics {
@@ -62,17 +72,35 @@ export function execCommandLabel(input: Record<string, unknown>): string {
   return cmd.replace(/\s+/g, " ").trim().slice(0, 500);
 }
 
+/** Extract rg/grep search pattern from a shell command (supports quoted patterns with pipes). */
+export function extractRgPattern(cmd: string): string | undefined {
+  const norm = cmd.replace(/\s+/g, " ").trim();
+  const quoted = norm.match(/\b(?:rg|grep)\b(?:\s+-[^\s]+)*\s+(["'])([\s\S]*?)\1/);
+  if (quoted?.[2]) return quoted[2].slice(0, 200);
+  const bare = norm.match(/\b(?:rg|grep)\b(?:\s+-[^\s]+)*\s+([^\s-][^\s]*)/);
+  if (bare?.[1] && !bare[1].startsWith("-")) return bare[1].slice(0, 200);
+  return undefined;
+}
+
+/** Extract file path from sed/cat/head/tail style reads. */
+export function extractReadPath(cmd: string): string | undefined {
+  const norm = cmd.replace(/\s+/g, " ").trim();
+  const sedTail = norm.match(/\b(?:sed|cat|head|tail)\b[\s\S]*?\s(\/[^\s;|&]+|\.\/[^\s;|&]+|[^\s;|&]+\.[a-z0-9]+)/i);
+  if (sedTail?.[1]) return sedTail[1];
+  return undefined;
+}
+
 export function classifyExecCommand(cmd: string): {
   shell_cmd?: string;
   grep_pattern?: string;
   read_path?: string;
 } {
   const norm = cmd.replace(/\s+/g, " ").trim();
-  const rg = norm.match(/^(?:rg|grep)\s+(?:-[^\s]+\s+)*["']?([^"'\s]+)["']?/);
-  if (rg) return { grep_pattern: rg[1], shell_cmd: norm };
-  const sed = norm.match(/^(?:sed|cat|head|tail)\s+.*?['"]?([^'"\s]+\.(?:md|js|ts|tsx|yml|yaml|py|json))['"]?/i);
-  if (sed) return { read_path: sed[1], shell_cmd: norm };
-  return { shell_cmd: norm };
+  return {
+    shell_cmd: norm,
+    grep_pattern: extractRgPattern(norm),
+    read_path: extractReadPath(norm),
+  };
 }
 
 function extractSessionId(output: string, input: Record<string, unknown>): number | undefined {
@@ -81,17 +109,48 @@ function extractSessionId(output: string, input: Record<string, unknown>): numbe
   return m ? Number(m[1]) : undefined;
 }
 
-export function enrichCodexSession(session: ParsedCodexSession): {
-  metricsMap: Map<string, ToolExecutionMetrics>;
-  sessionToolStats: CodexSessionToolStats;
-} {
-  const { steps } = flattenCodexSteps(session);
-  const metricsMap = new Map<string, ToolExecutionMetrics>();
-  const by_tool: CodexSessionToolStats["by_tool"] = {};
-  const slowest: CodexSessionToolStats["slowest"] = [];
-  const largest_outputs: CodexSessionToolStats["largest_outputs"] = [];
-  const background = new Map<number, { command: string; poll_count: number; total_wall_ms: number; first_step: number }>();
+function aggregateBackgroundSessions(
+  membersBySession: Map<number, SessionMember[]>,
+  metricsMap: Map<string, ToolExecutionMetrics>
+): Map<number, number> {
+  const aggregatedMs = new Map<number, number>();
+  for (const [sid, members] of membersBySession) {
+    if (members.length < 2) continue;
+    const polls = members.filter((m) => m.name === "write_stdin");
+    if (!polls.length) continue;
 
+    const execs = members.filter((m) => m.name === "exec_command");
+    const totalWall = members.reduce((sum, m) => sum + (m.metrics.duration_ms ?? 0), 0);
+    const totalTokens = members.reduce((sum, m) => sum + m.metrics.output_tokens, 0);
+    const totalChars = members.reduce((sum, m) => sum + m.metrics.output_chars, 0);
+    aggregatedMs.set(sid, totalWall);
+
+    const primary = execs[0] ?? polls[0];
+    if (!primary) continue;
+
+    metricsMap.set(primary.key, {
+      ...primary.metrics,
+      duration_ms: totalWall,
+      duration_source: "terminal",
+      output_tokens: totalTokens,
+      output_chars: totalChars,
+      output_source: "terminal_output",
+    });
+
+    for (const m of members) {
+      if (m.key === primary.key) continue;
+      metricsMap.set(m.key, { ...m.metrics, duration_ms: 0, duration_source: "unknown" });
+    }
+  }
+  return aggregatedMs;
+}
+
+function rebuildTotals(
+  steps: ReturnType<typeof flattenCodexSteps>["steps"],
+  metricsMap: Map<string, ToolExecutionMetrics>,
+  slowest: CodexSessionToolStats["slowest"]
+) {
+  const by_tool: CodexSessionToolStats["by_tool"] = {};
   let total_duration_ms = 0;
   let known_duration_count = 0;
   let total_output_tokens = 0;
@@ -102,11 +161,10 @@ export function enrichCodexSession(session: ParsedCodexSession): {
     for (const tool of step.tools) {
       toolIndex++;
       const key = `${step.step_index}:t${toolIndex}`;
-      const metrics = parseCodexOutputMetrics(tool.output, tool.input);
-      metricsMap.set(key, metrics);
+      const metrics = metricsMap.get(key)!;
+      const label = tool.name === "exec_command" ? execCommandLabel(tool.input) : tool.name;
 
-      const label = tool.name === "exec_command" ? execCommandLabel(tool.input) : `${tool.name}(${JSON.stringify(tool.input).slice(0, 80)})`;
-      if (metrics.duration_ms != null) {
+      if (metrics.duration_ms != null && metrics.duration_ms > 0) {
         total_duration_ms += metrics.duration_ms;
         known_duration_count++;
       }
@@ -118,6 +176,39 @@ export function enrichCodexSession(session: ParsedCodexSession): {
       bucket.total_duration_ms += metrics.duration_ms ?? 0;
       bucket.total_output_tokens += metrics.output_tokens;
       by_tool[tool.name] = bucket;
+
+      const idx = slowest.findIndex((r) => r.step === step.step_index && r.sub_index === toolIndex);
+      if (idx >= 0) {
+        slowest[idx]!.duration_ms = metrics.duration_ms ?? 0;
+        slowest[idx]!.output_tokens = metrics.output_tokens;
+        slowest[idx]!.command = label === "exec_command" ? execCommandLabel(tool.input) : slowest[idx]!.command;
+      }
+    }
+  }
+
+  return { by_tool, total_duration_ms, known_duration_count, total_output_tokens, total_output_chars };
+}
+
+export function enrichCodexSession(session: ParsedCodexSession): {
+  metricsMap: Map<string, ToolExecutionMetrics>;
+  sessionToolStats: CodexSessionToolStats;
+} {
+  const { steps } = flattenCodexSteps(session);
+  const metricsMap = new Map<string, ToolExecutionMetrics>();
+  const slowest: CodexSessionToolStats["slowest"] = [];
+  const largest_outputs: CodexSessionToolStats["largest_outputs"] = [];
+  const background = new Map<number, { command: string; poll_count: number; total_wall_ms: number; first_step: number }>();
+  const sessionMembers = new Map<number, SessionMember[]>();
+
+  for (const step of steps) {
+    let toolIndex = 0;
+    for (const tool of step.tools) {
+      toolIndex++;
+      const key = `${step.step_index}:t${toolIndex}`;
+      const metrics = parseCodexOutputMetrics(tool.output, tool.input);
+      metricsMap.set(key, metrics);
+
+      const label = tool.name === "exec_command" ? execCommandLabel(tool.input) : `${tool.name}(${JSON.stringify(tool.input).slice(0, 80)})`;
 
       slowest.push({
         step: step.step_index,
@@ -138,6 +229,10 @@ export function enrichCodexSession(session: ParsedCodexSession): {
 
       const sid = extractSessionId(tool.output, tool.input);
       if (sid != null) {
+        const list = sessionMembers.get(sid) ?? [];
+        list.push({ key, name: tool.name, step: step.step_index, toolIndex, label, metrics: { ...metrics } });
+        sessionMembers.set(sid, list);
+
         const existing = background.get(sid) ?? {
           command: tool.name === "exec_command" ? execCommandLabel(tool.input) : `session ${sid}`,
           poll_count: 0,
@@ -150,6 +245,9 @@ export function enrichCodexSession(session: ParsedCodexSession): {
       }
     }
   }
+
+  const aggregatedMs = aggregateBackgroundSessions(sessionMembers, metricsMap);
+  const totals = rebuildTotals(steps, metricsMap, slowest);
 
   const thinking_gaps_ms: CodexSessionToolStats["thinking_gaps_ms"] = [];
   for (let i = 1; i < steps.length; i++) {
@@ -171,12 +269,12 @@ export function enrichCodexSession(session: ParsedCodexSession): {
   return {
     metricsMap,
     sessionToolStats: {
-      total_duration_ms,
-      known_duration_count,
-      total_output_tokens,
-      total_output_chars,
-      background_sessions: [...background.entries()].map(([session_id, v]) => ({ session_id, ...v })),
-      by_tool,
+      ...totals,
+      background_sessions: [...background.entries()].map(([session_id, v]) => ({
+        session_id,
+        ...v,
+        aggregated_ms: aggregatedMs.get(session_id) ?? v.total_wall_ms,
+      })),
       slowest: slowest.slice(0, 15),
       largest_outputs: largest_outputs.slice(0, 15),
       thinking_gaps_ms,

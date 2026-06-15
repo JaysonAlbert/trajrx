@@ -118,7 +118,8 @@ export function flattenCodexToMarkdown(events: CodexRolloutEvent[], opts: CodexF
     if (sessionToolStats.background_sessions.length) {
       parts.push("", "### Background exec sessions", "");
       for (const bg of sessionToolStats.background_sessions) {
-        parts.push(`- session ${bg.session_id}: ${bg.poll_count} polls, wall ~${formatDuration(bg.total_wall_ms)}, cmd: \`${bg.command.slice(0, 120)}\``);
+        const wall = bg.aggregated_ms ?? bg.total_wall_ms;
+        parts.push(`- session ${bg.session_id}: ${bg.poll_count} polls, wall ~${formatDuration(wall)}${bg.aggregated_ms ? " (aggregated)" : ""}, cmd: \`${bg.command.slice(0, 120)}\``);
       }
     }
     if (sessionToolStats.thinking_gaps_ms.length) {
