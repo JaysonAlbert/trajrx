@@ -1,4 +1,4 @@
-# Doctor — AgentRx-style IDE Agent Attribution Pipeline
+# TrajRx — IDE Agent Trajectory Attribution Pipeline
 
 **Runtime:** TypeScript / Node.js ≥20  
 **Entry:** `npm run analyze -- <transcript.jsonl>` or `node dist/cli.js`
@@ -54,7 +54,7 @@
 ### 目录结构
 
 ```
-doctor/
+trajrx/
 ├── package.json
 ├── tsconfig.json
 ├── src/
@@ -84,7 +84,7 @@ doctor/
 | `src/agentCli/` | 可插拔 agent CLI 调用（cursor/claude/codex） | 是（外部 CLI） |
 | `src/eval/` | LLM 评估 prompt + 产物写入 | 是（外部 CLI） |
 
-### 设计原则（AgentRx）
+### 设计原则（TrajRx）
 
 1. **Checker 先行，Judge 殿后** — 证据可审计
 2. **IR 统一异构源** — 同一 schema 走同一套 invariant

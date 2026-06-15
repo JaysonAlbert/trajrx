@@ -45,11 +45,11 @@ export function getAgentCliProfile(id: string): AgentCliProfile {
 }
 
 export function resolveDefaultAgentCliId(): AgentCliId {
-  const env = process.env.DOCTOR_AGENT_CLI?.trim().toLowerCase();
+  const env = process.env.TRAJRX_AGENT_CLI?.trim().toLowerCase();
   if (env && env in PROFILES) return env as AgentCliId;
   return "cursor";
 }
 
 export function resolveDefaultAgentModel(profile: AgentCliProfile): string {
-  return process.env.DOCTOR_AGENT_MODEL?.trim() || profile.defaultModel;
+  return process.env.TRAJRX_AGENT_MODEL?.trim() || profile.defaultModel;
 }

@@ -70,23 +70,23 @@ async function main() {
 
   if (!input) {
     console.log(`Usage:
-  doctor <transcript.jsonl> [--run-name NAME] [--agent-eval]
-  doctor <transcript.jsonl> --flatten-only [-o out.md]
-  doctor <run-dir> --analysis-only
-  doctor <run-dir> --agent-eval-only [--agent-cli cursor|claude|codex] [--agent-model MODEL]
-  doctor <dir> --batch [--agent-eval]
+  trajrx <transcript.jsonl> [--run-name NAME] [--agent-eval]
+  trajrx <transcript.jsonl> --flatten-only [-o out.md]
+  trajrx <run-dir> --analysis-only
+  trajrx <run-dir> --agent-eval-only [--agent-cli cursor|claude|codex] [--agent-model MODEL]
+  trajrx <dir> --batch [--agent-eval]
 
 Agent evaluation (LLM path):
   --agent-eval          Run agent CLI evaluation after rule pipeline
-  --skip-agent-eval     Disable (default unless DOCTOR_AGENT_EVAL=1)
+  --skip-agent-eval     Disable (default unless TRAJRX_AGENT_EVAL=1)
   --agent-eval-only     Re-run LLM eval on an existing run directory
   --agent-cli           cursor (default) | claude | codex
   --agent-model         e.g. auto (cursor), sonnet (claude), o3 (codex)
 
 Environment:
-  DOCTOR_AGENT_EVAL=1   Enable --agent-eval by default
-  DOCTOR_AGENT_CLI      Default agent CLI profile
-  DOCTOR_AGENT_MODEL    Default model for agent CLI`);
+  TRAJRX_AGENT_EVAL=1   Enable --agent-eval by default
+  TRAJRX_AGENT_CLI      Default agent CLI profile
+  TRAJRX_AGENT_MODEL    Default model for agent CLI`);
     process.exit(1);
   }
 

@@ -113,7 +113,7 @@ export async function runAgentEval(opts: RunAgentEvalOptions): Promise<AgentEval
         session_id: traj.trajectory_id,
         source_transcript: opts.sourceTranscriptPath ?? traj.metadata.source_path,
         analyzed_at: record.evaluated_at,
-        doctor_run: opts.runDir,
+        trajrx_run: opts.runDir,
         agent_cli: profileId,
         agent_model: model,
       },

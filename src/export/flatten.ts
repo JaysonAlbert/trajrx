@@ -113,7 +113,7 @@ export function flattenEventsToMarkdown(events: CursorEvent[], opts: FlattenOpti
   if (sourcePath) parts.push(`| source | \`${sourcePath}\` |`);
   parts.push(
     "",
-    "> Flattened by **doctor** for AI attribution reading. Chronological, one section per user message or assistant step.",
+    "> Flattened by **TrajRx** for AI attribution reading. Chronological, one section per user message or assistant step.",
     ""
   );
 
@@ -192,7 +192,7 @@ export function appendAttributionSection(flatMd: string, attribution: Attributio
     "",
     "---",
     "",
-    "## Attribution Summary (doctor)",
+    "## Attribution Summary (TrajRx)",
     "",
     `- **primary_cause:** ${attribution.primary_cause}`,
     `- **confidence:** ${attribution.confidence}`,
@@ -222,7 +222,7 @@ export function appendAttributionSection(flatMd: string, attribution: Attributio
 export function buildReport(traj: TrajectoryIR, checker: CheckerResult, attr: Attribution): string {
   const tel = checker.telemetry_summary as Record<string, number | Record<string, number>>;
   const lines = [
-    "# Doctor Attribution Report",
+    "# TrajRx Attribution Report",
     "",
     `**Session:** \`${traj.trajectory_id}\``,
     `**Source:** ${traj.source}`,

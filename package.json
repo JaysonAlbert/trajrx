@@ -1,11 +1,11 @@
 {
-  "name": "cursor-agent-doctor",
+  "name": "trajrx",
   "version": "0.2.0",
-  "description": "IDE agent efficiency attribution pipeline — flatten Cursor transcripts, check invariants, attribute inefficiency (AgentRx-style)",
+  "description": "TrajRx — IDE agent trajectory analysis and efficiency attribution pipeline",
   "type": "module",
   "main": "./dist/cli.js",
   "bin": {
-    "doctor": "./dist/cli.js"
+    "trajrx": "./dist/cli.js"
   },
   "files": [
     "dist",
@@ -26,8 +26,10 @@
     "node": ">=20"
   },
   "keywords": [
+    "trajrx",
     "cursor",
     "agent",
+    "trajectory",
     "transcript",
     "attribution",
     "observability",

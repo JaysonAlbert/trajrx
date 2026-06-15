@@ -2,7 +2,7 @@
 
 ## `qis-strategy-index-analysis.jsonl`
 
-Cursor agent session used to validate the doctor pipeline end-to-end.
+Cursor agent session used to validate the TrajRx pipeline end-to-end.
 
 | Field | Value |
 |-------|-------|
@@ -18,7 +18,7 @@ Cursor agent session used to validate the doctor pipeline end-to-end.
 npm run build
 npm run analyze -- test/fixtures/qis-strategy-index-analysis.jsonl --run-name qis-fixture
 # or after global install:
-doctor test/fixtures/qis-strategy-index-analysis.jsonl --run-name qis-fixture
+trajrx test/fixtures/qis-strategy-index-analysis.jsonl --run-name qis-fixture
 ```
 
 Expected: `primary_cause=tool` (or compound tool+context), `critical_step=20`, 11 violations.

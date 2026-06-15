@@ -1,6 +1,8 @@
-# cursor-agent-doctor
+# TrajRx
 
-IDE agent efficiency attribution pipeline (AgentRx-style). Two paths:
+**TrajRx** (Trajectory + Rx) is an IDE agent trajectory analysis and efficiency attribution pipeline. It turns Cursor agent transcripts into auditable reports — flattening sessions, building a trajectory IR, checking invariants, and attributing inefficiency.
+
+Two analysis paths:
 
 1. **Rules (default)** — flatten → IR → invariant checker → rule attributor → reconcile
 2. **LLM (optional)** — invoke an external agent CLI (`cursor-agent`, `claude`, `codex`) to read artifacts and write `agent-evaluation.md`
@@ -8,7 +10,7 @@ IDE agent efficiency attribution pipeline (AgentRx-style). Two paths:
 ## Install (global CLI)
 
 ```bash
-cd /path/to/doctor
+cd /path/to/trajrx
 npm install
 npm run build
 npm link
@@ -17,47 +19,47 @@ npm link
 Or install from a path without link:
 
 ```bash
-npm install -g /path/to/doctor
+npm install -g /path/to/trajrx
 ```
 
 Verify:
 
 ```bash
-doctor --help   # or: doctor test/fixtures/qis-strategy-index-analysis.jsonl --run-name demo
+trajrx --help   # or: trajrx test/fixtures/qis-strategy-index-analysis.jsonl --run-name demo
 ```
 
 ## Usage
 
 ```bash
 # Full pipeline → runs/<name>/
-doctor transcript.jsonl --run-name my-analysis
+trajrx transcript.jsonl --run-name my-analysis
 
 # Flat markdown only
-doctor transcript.jsonl --flatten-only -o session.flat.md
+trajrx transcript.jsonl --flatten-only -o session.flat.md
 
 # Batch all .jsonl under a directory
-doctor ~/.cursor/projects --batch
+trajrx ~/.cursor/projects --batch
 
 # Full pipeline + LLM agent evaluation (cursor-agent --mode ask --model auto -p)
-doctor transcript.jsonl --run-name my-analysis --agent-eval
+trajrx transcript.jsonl --run-name my-analysis --agent-eval
 
 # Re-run LLM eval on an existing run directory
-doctor runs/my-analysis --agent-eval-only --agent-cli cursor --agent-model auto
+trajrx runs/my-analysis --agent-eval-only --agent-cli cursor --agent-model auto
 
 # Use Claude Code or Codex CLI instead
-doctor transcript.jsonl --agent-eval --agent-cli claude --agent-model sonnet
-doctor transcript.jsonl --agent-eval --agent-cli codex --agent-model o3
+trajrx transcript.jsonl --agent-eval --agent-cli claude --agent-model sonnet
+trajrx transcript.jsonl --agent-eval --agent-cli codex --agent-model o3
 ```
 
 ## Environment
 
 | Variable | Default | Purpose |
 |----------|---------|---------|
-| `DOCTOR_RUNS_DIR` | `./runs` (cwd) | Output directory for analysis runs |
-| `DOCTOR_HOME` | `~/.doctor` | Optional home for runs when set |
-| `DOCTOR_AGENT_EVAL` | off | Set `1` to enable `--agent-eval` by default |
-| `DOCTOR_AGENT_CLI` | `cursor` | Default agent CLI: `cursor` \| `claude` \| `codex` |
-| `DOCTOR_AGENT_MODEL` | profile default | Model flag passed to agent CLI (`auto` for cursor) |
+| `TRAJRX_RUNS_DIR` | `./runs` (cwd) | Output directory for analysis runs |
+| `TRAJRX_HOME` | `~/.trajrx` | Optional home for runs when set |
+| `TRAJRX_AGENT_EVAL` | off | Set `1` to enable `--agent-eval` by default |
+| `TRAJRX_AGENT_CLI` | `cursor` | Default agent CLI: `cursor` \| `claude` \| `codex` |
+| `TRAJRX_AGENT_MODEL` | profile default | Model flag passed to agent CLI (`auto` for cursor) |
 
 ## Test fixture
 

@@ -34,9 +34,9 @@ export function writeEvalContext(input: EvalContextInput): string {
   const manualAttr = readJsonOptional(join(runDir, "reconcile", "manual_attribution.json"));
 
   const lines = [
-    "# Doctor Agent Evaluation Context",
+    "# TrajRx Agent Evaluation Context",
     "",
-    "You are the **LLM evaluation path** for doctor (AgentRx-style IDE agent efficiency attribution).",
+    "You are the **LLM evaluation path** for TrajRx (IDE agent trajectory analysis and efficiency attribution).",
     "A deterministic rule pipeline has already run. Your job is to read the artifacts, judge efficiency,",
     "compare with static attribution, and explain divergences.",
     "",
@@ -94,7 +94,7 @@ export function writeEvalContext(input: EvalContextInput): string {
     "## 工具效率",
     "(table: wall time, output tokens, slowest calls, call patterns)",
     "",
-    "## 静态工具结论 (doctor)",
+    "## 静态工具结论 (TrajRx)",
     "(table: primary_cause, confidence, violations count, reconcile verdict)",
     "",
     "## Agent 评估",
@@ -120,7 +120,7 @@ export function writeEvalContext(input: EvalContextInput): string {
 
 export function buildAgentEvalPrompt(evalContextPath: string, flatMdPath: string): string {
   return [
-    "Run a doctor agent-evaluation job.",
+    "Run a TrajRx agent-evaluation job.",
     "",
     `1. Read ${evalContextPath} completely.`,
     `2. Read the flat transcript at ${flatMdPath} (skim structure; deep-read hotspots cited in static violations).`,
