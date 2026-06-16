@@ -1,24 +1,46 @@
 {
-  "name": "doctor",
+  "name": "cursor-agent-doctor",
   "version": "0.2.0",
-  "description": "IDE agent efficiency attribution pipeline (AgentRx-style)",
+  "description": "IDE agent efficiency attribution pipeline — flatten Cursor transcripts, check invariants, attribute inefficiency (AgentRx-style)",
   "type": "module",
-  "main": "dist/cli.js",
+  "main": "./dist/cli.js",
   "bin": {
-    "doctor": "dist/cli.js"
+    "doctor": "./dist/cli.js"
   },
+  "files": [
+    "dist",
+    "README.md",
+    "PLAN.md",
+    "LICENSE"
+  ],
   "scripts": {
     "build": "tsc",
+    "prepare": "npm run build",
+    "prepublishOnly": "npm run build",
     "start": "node dist/cli.js",
     "dev": "tsx src/cli.ts",
-    "analyze": "tsx src/cli.ts"
+    "analyze": "node dist/cli.js",
+    "test:fixture": "node dist/cli.js test/fixtures/qis-strategy-index-analysis.jsonl --run-name qis-fixture"
   },
   "engines": {
     "node": ">=20"
   },
+  "keywords": [
+    "cursor",
+    "agent",
+    "transcript",
+    "attribution",
+    "observability",
+    "llm"
+  ],
+  "license": "MIT",
   "devDependencies": {
     "@types/node": "^22.10.0",
     "tsx": "^4.19.0",
     "typescript": "^5.7.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "."
   }
 }

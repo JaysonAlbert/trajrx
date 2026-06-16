@@ -8,9 +8,9 @@ import { attributeAll } from "./judge/attributor.js";
 import { cursorIr } from "./ir/cursorIr.js";
 import { loadTrajectories } from "./ir/loader.js";
 import type { Attribution, CheckerResult, RawTrajectory, TrajectoryIR } from "./types/index.js";
+import { getRunsDir } from "./config.js";
 
-const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-export const RUNS_DIR = join(REPO_ROOT, "runs");
+export const RUNS_DIR = getRunsDir();
 
 function banner(msg: string) {
   console.log(`\n${"=".repeat(60)}\n  ${msg}\n${"=".repeat(60)}`);
