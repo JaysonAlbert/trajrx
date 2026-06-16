@@ -25,7 +25,7 @@ npm install -g /path/to/trajrx
 Verify:
 
 ```bash
-trajrx --help   # or: trajrx test/fixtures/qis-strategy-index-analysis.jsonl --run-name demo
+trajrx --help   # or: trajrx path/to/transcript.jsonl --run-name demo
 ```
 
 ## Usage
@@ -64,11 +64,9 @@ trajrx transcript.jsonl --agent-eval --agent-cli codex --agent-model o3
 | `TRAJRX_AGENT_CLI` | `cursor` | Default agent CLI: `cursor` \| `claude` \| `codex` |
 | `TRAJRX_AGENT_MODEL` | profile default | Model flag passed to agent CLI (`auto` for cursor) |
 
-## Test fixture
+## Local test fixtures
 
-```bash
-npm run analyze -- test/fixtures/qis-strategy-index-analysis.jsonl --run-name qis-fixture
-```
+Transcript fixtures are gitignored (see [test/fixtures/README.md](./test/fixtures/README.md)). Copy your own `.jsonl` into `test/fixtures/` for local runs.
 
 See [PLAN.md](./PLAN.md) for architecture.
 

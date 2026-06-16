@@ -20,7 +20,7 @@
     "start": "node dist/cli.js",
     "dev": "tsx src/cli.ts",
     "analyze": "node dist/cli.js",
-    "test:fixture": "node dist/cli.js test/fixtures/qis-strategy-index-analysis.jsonl --run-name qis-fixture"
+    "test:fixture": "node -e \"console.error('Add a local .jsonl under test/fixtures/ (gitignored). See test/fixtures/README.md'); process.exit(1)\""
   },
   "engines": {
     "node": ">=20"

@@ -3,6 +3,10 @@ __pycache__/
 .venv/
 runs/
 reports/
+test/fixtures/*.jsonl
+.env
+.env.*
+*.local
 *.egg-info/
 dist/
 build/
