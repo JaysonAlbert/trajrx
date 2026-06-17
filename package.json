@@ -1,11 +1,11 @@
 {
-  "name": "trajrx",
-  "version": "0.2.0",
+  "name": "@gf/trajrx",
+  "version": "0.2.1",
   "description": "TrajRx — IDE agent trajectory analysis and efficiency attribution pipeline",
   "type": "module",
   "main": "./dist/cli.js",
   "bin": {
-    "trajrx": "./dist/cli.js"
+    "trajrx": "dist/cli.js"
   },
   "files": [
     "dist",
@@ -14,9 +14,12 @@
     "LICENSE"
   ],
   "scripts": {
-    "build": "tsc",
+    "build": "tsc && npm run chmod-bin",
+    "chmod-bin": "node -e \"const fs = require('fs'); fs.chmodSync('dist/cli.js', 0o755)\"",
     "prepare": "npm run build",
     "prepublishOnly": "npm run build",
+    "publish:latest": "npm publish --tag latest --registry http://npm.gf.com.cn && npm dist-tag add @gf/trajrx@$npm_package_version latest --registry http://npm.gf.com.cn",
+    "publish:version": "npm publish --tag v$npm_package_version --registry http://npm.gf.com.cn && npm dist-tag add @gf/trajrx@$npm_package_version v$npm_package_version --registry http://npm.gf.com.cn",
     "start": "node dist/cli.js",
     "dev": "tsx src/cli.ts",
     "analyze": "node dist/cli.js",
@@ -39,6 +42,9 @@
     "llm"
   ],
   "license": "MIT",
+  "publishConfig": {
+    "registry": "http://npm.gf.com.cn"
+  },
   "devDependencies": {
     "@types/node": "^22.10.0",
     "tsx": "^4.19.0",
