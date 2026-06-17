@@ -83,6 +83,8 @@ trajrx transcript.jsonl --agent-eval --agent-cli codex --agent-model o3
 
 Each run writes `run.log`, `run-summary.md`, and `run-summary.json`. The terminal summary uses [boxen](https://github.com/sindresorhus/boxen) and highlights report paths (`analysis-report.md`, `agent-evaluation.md`).
 
+**Session metrics (Codex):** `analysis-report.md` §2 shows gross session wall time (含用户等待), active wall time (扣除用户等待), and user idle when present. See [docs/reference/metrics.md](./docs/reference/metrics.md).
+
 ## Local test fixtures
 
 Transcript fixtures are gitignored (see [test/fixtures/README.md](./test/fixtures/README.md)). Copy your own `.jsonl` into `test/fixtures/` for local runs.

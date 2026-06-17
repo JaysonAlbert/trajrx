@@ -47,7 +47,7 @@ Run the full pipeline on a transcript file:
 trajrx transcript.jsonl --run-name my-analysis
 ```
 
-Output lands in `runs/my-analysis/`. See [Output Artifacts](/architecture/output) for the full file layout.
+Output lands in `runs/my-analysis/`. See [Output Artifacts](/architecture/output) for the full file layout. For Codex sessions, `analysis-report.md` §2 includes session wall time (gross vs active); see [Metrics](/reference/metrics).
 
 ## Two analysis paths
 

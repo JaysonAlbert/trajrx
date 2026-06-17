@@ -28,7 +28,9 @@ Builds a normalized intermediate representation:
 
 - `trajectory_id`
 - `steps[]` with `index`, `telemetry` (tool counts, grep patterns, durations)
-- `metadata` (user turns, session info)
+- `metadata` (user turns, session wall time, tool efficiency snapshot)
+
+**Session metrics (Codex):** `src/ir/sessionMetrics.ts` computes `session_wall_ms`, `user_idle_ms`, and `session_active_wall_ms` during `codexIr()` and stores them on IR metadata. Downstream stages read via `resolveSessionWallMs()` etc. — no Codex-specific logic in reports.
 
 Output: `trajectory_ir.json`
 
@@ -100,3 +102,14 @@ Computes per-tool and per-session statistics used by invariants and reports — 
 **Module:** `src/ui/pipelineUi.ts`, `src/ui/runLogger.ts`, `src/ui/summary.ts`
 
 Provides compact TUI progress during pipeline execution and writes `run.log`, `run-summary.md`, `run-summary.json`.
+
+## Session lookup (pre-pipeline)
+
+**Module:** `src/session/search.ts`
+
+Resolves transcript paths by title before Stage 0:
+
+- `--source codex --title` → `~/.codex/session_index.jsonl` + rollout file
+- `--source cursor --title` → scan `~/.cursor/projects/**/agent-transcripts/`
+
+Use `--list-sessions` to preview matches without running analysis.

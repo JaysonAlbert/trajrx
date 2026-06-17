@@ -37,6 +37,24 @@ Exact files depend on pipeline flags and transcript format.
 
 Normalized session representation shared by checker, judge, and reports. Contains `steps[]` with telemetry used by all invariant checks.
 
+Session-level metadata (Codex today):
+
+```json
+{
+  "metadata": {
+    "session_wall_ms": 2334243,
+    "session_active_wall_ms": 2235672,
+    "user_idle_ms": 98571,
+    "session_started_at": "2026-06-16T14:52:40.123Z",
+    "session_ended_at": "2026-06-16T15:31:34.456Z",
+    "user_turns": 10,
+    "step_count": 140
+  }
+}
+```
+
+See [Metrics](/reference/metrics) for field definitions and Cursor support status.
+
 ### `checker_results/violations.json`
 
 Array of violations. Each entry links an `invariant_id` to a `step_index` with severity and evidence — the auditable foundation for attribution.
@@ -57,9 +75,16 @@ Session-level efficiency attribution derived from violation weights:
 
 AI-readable session transcript. Step anchors (`#SN`) match `step_index` in violations for cross-referencing.
 
+### `analysis-report.md`
+
+Consolidated session report. Section **2. 会话指标** includes:
+
+- 会话墙时（含用户等待） / 会话活跃墙时（扣除用户等待） / 用户等待时间 (Codex)
+- 工具总墙时, tool output tokens, violation count, primary cause
+
 ### `run-summary.md` / `run-summary.json`
 
-Compact post-run summary: stages completed, violation counts, primary cause, token/tool stats.
+Compact post-run summary: stages completed, violation counts, primary cause, session wall (gross/net), tool time, token stats. Written by `src/ui/summary.ts` after the terminal boxen summary.
 
 ## Re-running without full pipeline
 

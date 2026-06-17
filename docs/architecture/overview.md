@@ -99,6 +99,9 @@ trajrx/
 
 - [x] Codex rollout-trace IR converter
 - [x] Agent CLI evaluation path (`--agent-eval` / `--agent-eval-only`)
+- [x] Session lookup by title (`--source codex|cursor --title`)
+- [x] Terminal UI + run summary
+- [x] Session wall time gross/net (Codex; Cursor pending timestamps)
 - [ ] Dynamic invariants (LLM-generated per step)
 - [ ] Cursor hooks OTel integration
 - [ ] npm package / VS Code extension

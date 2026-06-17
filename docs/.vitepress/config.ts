@@ -37,6 +37,7 @@ export default defineConfig({
         {
           text: "Reference",
           items: [
+            { text: "Metrics", link: "/reference/metrics" },
             { text: "Invariants", link: "/reference/invariants" },
           ],
         },
