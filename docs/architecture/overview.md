@@ -62,7 +62,7 @@ trajrx/
 │   ├── config.ts           # Env & path resolution
 │   ├── types/              # Shared types
 │   ├── export/             # Flat markdown & analysis reports
-│   ├── ir/                 # loader, cursorIr, codexIr, schema
+│   ├── ir/                 # loader, adapters, cursorIr, codexIr, sessionMetrics, stepTelemetry
 │   ├── invariants/         # presets, checker
 │   ├── judge/              # attributor
 │   ├── analyst/            # reconcile
@@ -101,7 +101,7 @@ trajrx/
 - [x] Agent CLI evaluation path (`--agent-eval` / `--agent-eval-only`)
 - [x] Session lookup by title (`--source codex|cursor --title`)
 - [x] Terminal UI + run summary
-- [x] Session wall time gross/net (Codex; Cursor pending timestamps)
+- [x] Session wall time gross/net (Codex event timestamps; Cursor file mtime + terminal gaps)
 - [ ] Dynamic invariants (LLM-generated per step)
 - [ ] Cursor hooks OTel integration
 - [ ] npm package / VS Code extension

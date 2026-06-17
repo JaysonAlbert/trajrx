@@ -1,7 +1,14 @@
+import type { TerminalRecord } from "../enrich/toolMetrics.js";
 import type { CursorEvent, RawTrajectory, Substep, TrajectoryIR, TrajectoryStep, ToolExecutionMetrics } from "../types/index.js";
 import { validateIr } from "./schema.js";
+import { applySessionWallMetrics, buildCursorSessionWallMetrics } from "./sessionMetrics.js";
+import { buildStepTelemetry, extractCursorStepFields } from "./stepTelemetry.js";
 
 const USER_QUERY_RE = /<user_query>\s*(.*?)\s*<\/user_query>/s;
+
+export interface CursorIrOptions {
+  terminals?: TerminalRecord[];
+}
 
 function extractUserText(content: string): string {
   const m = USER_QUERY_RE.exec(content);
@@ -56,66 +63,16 @@ function parseAssistantContent(
   return substeps;
 }
 
-function stepTelemetry(substeps: Substep[], userTurn: number) {
-  const tool_names: string[] = [];
-  const mcp_servers: string[] = [];
-  const shell_cmds: string[] = [];
-  const grep_patterns: string[] = [];
-  const read_paths: string[] = [];
-  const skill_reads: string[] = [];
-  let tool_duration_ms = 0;
-  let tool_output_tokens = 0;
-
-  for (const sub of substeps) {
-    const role = sub.role ?? "";
-    const inp = sub.tool_input ?? {};
-    const name = sub.tool_name ?? "";
-    const exec = sub.execution;
-
-    if (role.startsWith("tool:")) tool_names.push(name || (role.split(":")[1] ?? ""));
-    if (role.startsWith("mcp:")) mcp_servers.push(role.split(":")[1]?.split("/")[0] ?? "");
-    if (exec?.duration_ms != null) tool_duration_ms += exec.duration_ms;
-    tool_output_tokens += exec?.output_tokens ?? 0;
-
-    if (name === "Shell") {
-      const cmd = String(inp.command ?? "");
-      if (cmd) shell_cmds.push(cmd.trim());
-    } else if (name === "Grep") {
-      const pat = String(inp.pattern ?? "");
-      if (pat) grep_patterns.push(pat);
-    } else if (name === "Read") {
-      const p = String(inp.path ?? "");
-      if (p) {
-        read_paths.push(p);
-        if (p.includes("SKILL.md") || p.includes("/skills/")) skill_reads.push(p);
-      }
-    }
-  }
-
-  return {
-    user_turn: userTurn,
-    tool_count: substeps.filter((s) => s.role.startsWith("tool:") || s.role.startsWith("mcp:")).length,
-    mcp_count: mcp_servers.length,
-    shell_count: shell_cmds.length,
-    read_count: read_paths.length,
-    grep_count: grep_patterns.length,
-    assistant_chars: substeps.filter((s) => s.role === "assistant").reduce((n, s) => n + s.content.length, 0),
-    tool_duration_ms,
-    tool_output_tokens,
-    tool_names,
-    mcp_servers,
-    shell_cmds,
-    grep_patterns,
-    read_paths,
-    skill_reads,
-  };
-}
-
-export function cursorIr(trajectories: RawTrajectory[], metricsMap?: Map<string, ToolExecutionMetrics>, toolEfficiency?: Record<string, unknown>): TrajectoryIR[] {
+export function cursorIr(
+  trajectories: RawTrajectory[],
+  metricsMap?: Map<string, ToolExecutionMetrics>,
+  toolEfficiency?: Record<string, unknown>,
+  options: CursorIrOptions = {},
+): TrajectoryIR[] {
   const out: TrajectoryIR[] = [];
 
   for (const traj of trajectories) {
-    const events = traj.events as import("../types/index.js").CursorEvent[];
+    const events = traj.events as CursorEvent[];
     let instruction = traj.instruction ?? "";
     let userTurn = 0;
     const steps: TrajectoryStep[] = [];
@@ -144,22 +101,24 @@ export function cursorIr(trajectories: RawTrajectory[], metricsMap?: Map<string,
       stepIdx++;
       steps.push({
         index: stepIdx,
-        telemetry: stepTelemetry(substeps, userTurn),
+        telemetry: buildStepTelemetry(substeps, userTurn, extractCursorStepFields),
         substeps,
       });
     }
+
+    const wall = buildCursorSessionWallMetrics(traj._source_path, events, options.terminals ?? []);
 
     const ir: TrajectoryIR = {
       trajectory_id: traj.trajectory_id ?? "unknown",
       source: "cursor",
       instruction,
-      metadata: {
+      metadata: applySessionWallMetrics({
         source_path: traj._source_path,
         event_count: events.length,
         step_count: steps.length,
         user_turns: userTurn,
         tool_efficiency: toolEfficiency,
-      },
+      }, wall),
       steps,
     };
     validateIr(ir);

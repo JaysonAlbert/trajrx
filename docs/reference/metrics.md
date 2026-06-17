@@ -23,9 +23,11 @@ These fields are written during IR normalization and read via `src/ir/sessionMet
 | Source | Gross wall time | Net (active) wall time | User idle |
 |--------|-----------------|------------------------|-----------|
 | **Codex** | ✅ from rollout event timestamps | ✅ computed | ✅ computed when idle > 0 |
-| **Cursor** | ❌ not yet (transcript has no per-event timestamps) | ❌ | ❌ |
+| **Cursor** | ✅ from transcript file birthtime → mtime | ✅ gross − idle (idle often 0) | ⚠️ estimated via terminal timestamp gaps when available |
 
-For Cursor sessions, `analysis-report.md` section 2 omits wall-time rows until timestamps are available (e.g. Cursor hooks OTel).
+For Cursor sessions without per-event timestamps, gross wall time uses the transcript file's birthtime and mtime. User idle is estimated from gaps between matched terminal `started_at` / `ended_at` across user turns when project `terminals/*.txt` metadata exists; otherwise idle is 0 and net equals gross.
+
+IR metadata records provenance: `metadata.session.wall_source` (`event_timestamps` | `file_mtime`) and `metadata.session.idle_source` (`turn_gaps` | `terminal_gaps` | `unavailable`).
 
 ## Tool wall time
 
@@ -63,7 +65,9 @@ User idle appears in `run-summary.md` only when `user_idle_sec > 0`.
 
 | Module | Role |
 |--------|------|
-| `src/ir/sessionMetrics.ts` | Wall/idle computation (Codex) and resolve helpers |
+| `src/ir/sessionMetrics.ts` | Wall/idle computation and resolve helpers |
+| `src/ir/adapters/` | `TranscriptAdapter` — enrich, flatten, IR per source |
+| `src/ir/stepTelemetry.ts` | Shared per-step telemetry aggregation |
 | `src/ir/codexIr.ts` | Writes session metadata into IR |
 | `src/export/analysisReport.ts` | Section 2 会话指标 table |
 | `src/invariants/checker.ts` | Includes wall metrics in `telemetry_summary` |

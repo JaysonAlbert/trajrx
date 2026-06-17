@@ -3,7 +3,8 @@ import { flattenCodexSteps, parseCodexRollout } from "./codexParser.js";
 import type { CodexRolloutEvent } from "../types/codex.js";
 import type { Substep, ToolExecutionMetrics, TrajectoryIR, TrajectoryStep } from "../types/index.js";
 import { validateIr } from "./schema.js";
-import { computeCodexUserIdleMs, wallMsFromTimestamps } from "./sessionMetrics.js";
+import { applySessionWallMetrics, buildCodexSessionWallMetrics } from "./sessionMetrics.js";
+import { buildStepTelemetry, extractCodexStepFields } from "./stepTelemetry.js";
 
 function mapToolName(name: string, input: Record<string, unknown>): string {
   if (name === "exec_command") {
@@ -58,60 +59,6 @@ function buildSubsteps(
   return substeps;
 }
 
-function stepTelemetry(substeps: Substep[], userTurn: number) {
-  const tool_names: string[] = [];
-  const shell_cmds: string[] = [];
-  const grep_patterns: string[] = [];
-  const read_paths: string[] = [];
-  const skill_reads: string[] = [];
-  let tool_duration_ms = 0;
-  let tool_output_tokens = 0;
-
-  for (const sub of substeps) {
-    const name = sub.tool_name ?? "";
-    const inp = sub.tool_input ?? {};
-    const exec = sub.execution;
-    if (sub.role.startsWith("tool:")) tool_names.push(name);
-    if (exec?.duration_ms != null) tool_duration_ms += exec.duration_ms;
-    tool_output_tokens += exec?.output_tokens ?? 0;
-
-    if (name === "Shell" || inp._codex_tool === "exec_command") {
-      const cmd = String(inp.cmd ?? inp.command ?? "");
-      const classified = classifyExecCommand(cmd);
-      if (classified.shell_cmd) shell_cmds.push(classified.shell_cmd);
-      if (classified.grep_pattern) grep_patterns.push(classified.grep_pattern);
-      if (classified.read_path) read_paths.push(classified.read_path);
-      if (cmd.includes("SKILL.md") || cmd.includes("/skills/")) skill_reads.push(cmd);
-    }
-    if (name === "Grep") {
-      const pat = String(inp.pattern ?? "") || extractRgPattern(String(inp.cmd ?? ""));
-      if (pat) grep_patterns.push(pat);
-    }
-    if (name === "Read") {
-      const p = String(inp.path ?? "");
-      if (p) read_paths.push(p);
-    }
-  }
-
-  return {
-    user_turn: userTurn,
-    tool_count: substeps.filter((s) => s.role.startsWith("tool:")).length,
-    mcp_count: 0,
-    shell_count: shell_cmds.length,
-    read_count: read_paths.length,
-    grep_count: grep_patterns.length,
-    assistant_chars: substeps.filter((s) => s.role === "assistant").reduce((n, s) => n + s.content.length, 0),
-    tool_duration_ms,
-    tool_output_tokens,
-    tool_names,
-    mcp_servers: [] as string[],
-    shell_cmds,
-    grep_patterns,
-    read_paths,
-    skill_reads,
-  };
-}
-
 export function codexIr(
   events: CodexRolloutEvent[],
   trajectoryId: string,
@@ -132,36 +79,29 @@ export function codexIr(
     if (!substeps.length) continue;
     trajectorySteps.push({
       index: step.step_index,
-      telemetry: stepTelemetry(substeps, step.user_turn),
+      telemetry: buildStepTelemetry(substeps, step.user_turn, extractCodexStepFields),
       substeps,
     });
   }
 
-  const sessionWallMs = wallMsFromTimestamps(session.started_at, session.ended_at);
-  const userIdleMs = computeCodexUserIdleMs(session);
-  const sessionActiveWallMs = sessionWallMs != null ? Math.max(0, sessionWallMs - userIdleMs) : undefined;
+  const wall = buildCodexSessionWallMetrics(session);
 
   const ir: TrajectoryIR = {
     trajectory_id: session.trajectory_id,
     source: "codex",
     instruction: session.instruction,
-    metadata: {
+    metadata: applySessionWallMetrics({
       event_count: session.raw_event_count,
       step_count: trajectorySteps.length,
       user_turns: userTurns,
       tool_efficiency: toolEfficiency,
-      session_wall_ms: sessionWallMs,
-      session_active_wall_ms: sessionActiveWallMs,
-      user_idle_ms: userIdleMs,
-      session_started_at: session.started_at,
-      session_ended_at: session.ended_at,
       codex: {
         cwd: session.cwd,
         model: session.model,
         started_at: session.started_at,
         ended_at: session.ended_at,
       },
-    },
+    }, wall),
     steps: trajectorySteps,
   };
   validateIr(ir);

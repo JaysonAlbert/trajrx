@@ -32,6 +32,10 @@ Builds a normalized intermediate representation:
 
 **Session metrics (Codex):** `src/ir/sessionMetrics.ts` computes `session_wall_ms`, `user_idle_ms`, and `session_active_wall_ms` during `codexIr()` and stores them on IR metadata. Downstream stages read via `resolveSessionWallMs()` etc. — no Codex-specific logic in reports.
 
+**Session metrics (Cursor):** `buildCursorSessionWallMetrics()` uses file mtime for gross wall time and optional terminal gaps for idle.
+
+**Transcript adapters:** `src/ir/adapters/` — `resolveAdapter()` picks `codexAdapter` or `cursorAdapter` for enrich, flatten, and IR stages.
+
 Output: `trajectory_ir.json`
 
 ## Stage 2 — Invariant Checker

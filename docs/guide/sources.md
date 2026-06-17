@@ -31,14 +31,27 @@ Reports expose two session wall-time metrics so colleagues can compare calendar 
 
 | Report label | Codex | Cursor |
 |--------------|-------|--------|
-| 会话墙时（含用户等待） | ✅ first → last event | ❌ not yet |
-| 会话活跃墙时（扣除用户等待） | ✅ gross − user idle | ❌ not yet |
-| 用户等待时间 | ✅ when idle > 0 | ❌ not yet |
+| 会话墙时（含用户等待） | ✅ first → last event | ✅ file birthtime → mtime |
+| 会话活跃墙时（扣除用户等待） | ✅ gross − user idle | ✅ gross − idle (terminal gaps when available) |
+| 用户等待时间 | ✅ when idle > 0 | ⚠️ terminal_gaps or 0 |
 | 工具总墙时 | ✅ | ✅ |
 
-Codex computes idle as the gap between the previous turn's last activity and the next user message. Cursor transcripts currently lack per-event timestamps, so wall-time fields are not written into IR metadata.
+Codex computes idle as the gap between the previous turn's last activity and the next user message. Cursor uses transcript file mtime for gross wall time and optionally terminal timestamp gaps between user turns for idle.
 
 Shared read path: `src/ir/sessionMetrics.ts` → `analysis-report.md`, checker telemetry, terminal summary.
+
+## Transcript adapters
+
+Source-specific enrich / flatten / IR logic is behind `TranscriptAdapter` (`src/ir/adapters/`):
+
+| Adapter | Modules |
+|---------|---------|
+| `codexAdapter` | `codexToolMetrics`, `codexFlatten`, `codexIr` |
+| `cursorAdapter` | `toolMetrics`, `flatten`, `cursorIr` |
+
+`pipeline.ts` calls `resolveAdapter(raw)` — no hard `if (codex)` branches. Add a third source by implementing a new adapter.
+
+Shared step telemetry lives in `src/ir/stepTelemetry.ts` (used by both IR builders).
 
 ## Feature parity
 
@@ -50,7 +63,7 @@ Shared read path: `src/ir/sessionMetrics.ts` → `analysis-report.md`, checker t
 | Invariants / judge / reconcile | same pipeline | ✅ + `INV-CODEX-*` | ✅ (no Codex-only rules) |
 | Tool enrichment | pipeline branch | `codexToolMetrics.ts` | `toolMetrics.ts` |
 | Flat markdown | pipeline branch | `codexFlatten.ts` | `flatten.ts` |
-| Session wall (gross/net) | `sessionMetrics.ts` | ✅ written in IR | ❌ pending timestamps |
+| Session wall (gross/net) | `sessionMetrics.ts` | ✅ event timestamps | ✅ file mtime + terminal gaps |
 | Terminal UI / run summary | `ui/*` | ✅ | ✅ |
 
 ## Codex-specific behavior

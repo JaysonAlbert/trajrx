@@ -1,6 +1,6 @@
 import type { Attribution, CheckerResult, TrajectoryIR, ToolExecutionMetrics } from "../types/index.js";
 import { formatDuration, formatTokenCount } from "../enrich/toolMetrics.js";
-import { resolveSessionActiveWallMs, resolveSessionWallMs, resolveUserIdleMs } from "../ir/sessionMetrics.js";
+import { resolveSessionActiveWallMs, resolveSessionWallMs, resolveSessionWallSource, resolveUserIdleMs, resolveUserIdleSource } from "../ir/sessionMetrics.js";
 
 export interface CommandCallRow {
   step: number;
@@ -280,6 +280,17 @@ export function buildAnalysisReport(input: AnalysisReportInput): string {
     ["Violations", String(checker.violation_count)],
   );
 
+  const sessionWallSource = resolveSessionWallSource(traj);
+  const userIdleSource = resolveUserIdleSource(traj);
+  const wallNote =
+    sessionWallSource === "file_mtime"
+      ? "**会话墙时（含用户等待）**：transcript 文件 birthtime → mtime（Cursor 无 per-event 时间戳时的近似值）。**会话活跃墙时**：gross 减去用户等待；idle 来自 terminal 时间戳间隙（`terminal_gaps`）或暂不可用。"
+      : "**会话墙时（含用户等待）**：首条 → 末条 transcript 事件跨度。**会话活跃墙时**：扣除各轮用户输入之间的等待空档（上一轮 agent 最后活动 → 下一条用户消息）。";
+  const idleNote =
+    userIdleSource === "unavailable" && sessionWallSource === "file_mtime"
+      ? " Cursor 用户等待暂无法从 transcript 精确拆分；net 与 gross 相同。"
+      : "";
+
   const lines: string[] = [
     `# Session 分析报告 — \`${traj.trajectory_id}\``,
     "",
@@ -293,7 +304,7 @@ export function buildAnalysisReport(input: AnalysisReportInput): string {
     "",
     mdTable(["指标", "值"], metricRows),
     "",
-    "> **会话墙时（含用户等待）**：首条 → 末条 transcript 事件跨度。**会话活跃墙时**：扣除各轮用户输入之间的等待空档（上一轮 agent 最后活动 → 下一条用户消息）。",
+    `> ${wallNote}${idleNote}`,
     "",
     "## 3. 归因与 Top Violations",
     "",

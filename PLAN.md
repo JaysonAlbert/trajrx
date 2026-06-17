@@ -155,7 +155,9 @@ runs/<name>/
 | 会话活跃墙时（扣除用户等待） | 上述跨度减去各轮用户输入之间的空档 |
 | 工具总墙时 | 各工具 `duration_ms` 之和（≠ 会话墙时） |
 
-Codex 在 IR 阶段写入 `session_wall_ms` / `user_idle_ms` / `session_active_wall_ms`（`src/ir/sessionMetrics.ts`）。Cursor transcript 暂无 per-event 时间戳，尚未写入。详见 `docs/reference/metrics.md`。
+Codex 在 IR 阶段通过 `buildCodexSessionWallMetrics()` 写入；Cursor 通过 `buildCursorSessionWallMetrics()` 使用文件 mtime（gross）与 terminal 时间戳间隙（idle，可选）。详见 `docs/reference/metrics.md`。
+
+异构源 enrich/flatten/IR 由 `src/ir/adapters/`（`TranscriptAdapter`）统一编排，`stepTelemetry.ts` 供两 IR builder 共用。
 
 ## Flat Markdown 格式
 
@@ -170,7 +172,8 @@ Codex 在 IR 阶段写入 `session_wall_ms` / `user_idle_ms` / `session_active_w
 - [x] Agent CLI 评估路径（`--agent-eval` / `--agent-eval-only`）
 - [x] 按标题查找会话（`--source codex|cursor --title`）
 - [x] 终端 UI + run summary（listr2 / boxen）
-- [x] 会话墙时 gross/net（Codex；Cursor 待时间戳）
+- [x] 会话墙时 gross/net（Codex 事件戳；Cursor 文件 mtime + terminal 间隙）
+- [x] TranscriptAdapter 抽象（`src/ir/adapters/`）
 - [ ] Dynamic invariants（LLM 逐步生成）
 - [ ] Cursor hooks OTel 接入
 - [ ] npm package / VS Code 扩展
