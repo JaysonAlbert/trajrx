@@ -1,3 +1,4 @@
+import { countToolInputStats } from "../enrich/toolInputMetrics.js";
 import type { Category, Severity, TrajectoryIR, TrajectoryStep, Violation } from "../types/index.js";
 
 type CheckFn = (traj: TrajectoryIR, steps: TrajectoryStep[]) => Violation[];
@@ -180,6 +181,58 @@ const invTool007: CheckFn = (_t, steps) => {
   return [];
 };
 
+const invTool008: CheckFn = (_t, steps) => {
+  const out: Violation[] = [];
+  for (const s of steps) {
+    for (const sub of s.substeps) {
+      if (!sub.tool_name) continue;
+      const stats = countToolInputStats(sub.tool_name, sub.tool_input ?? {});
+      const isShell = sub.tool_name === "Shell";
+      const heavy = isShell
+        ? stats.param_count >= 12 || stats.input_chars >= 1200
+        : stats.param_count >= 10;
+      const medium = isShell
+        ? stats.param_count >= 8 || stats.input_chars >= 600
+        : stats.param_count >= 8;
+      if (!medium) continue;
+      const cmd = sub.tool_name === "Shell"
+        ? String(sub.tool_input?.command ?? sub.tool_input?.cmd ?? "").slice(0, 120)
+        : sub.tool_name;
+      out.push(v(
+        "INV-TOOL-008",
+        "tool",
+        s.index,
+        heavy ? "high" : "medium",
+        `Bloated tool input ${sub.tool_name}: ${stats.param_count} params, ${stats.input_chars} input chars`,
+        {
+          tool: sub.tool_name,
+          param_count: stats.param_count,
+          flag_count: stats.flag_count,
+          input_chars: stats.input_chars,
+          command: cmd,
+          sub_index: sub.sub_index,
+        },
+      ));
+    }
+  }
+  return out;
+};
+
+const invTool009: CheckFn = (_t, steps) => {
+  const out: Violation[] = [];
+  for (const s of steps) {
+    for (const sub of s.substeps) {
+      const tokens = sub.execution?.output_tokens ?? 0;
+      if (tokens >= 10_000 && tokens < 50_000) {
+        out.push(v("INV-TOOL-009", "tool", s.index, "medium",
+          `Large tool output ${sub.tool_name}: ~${tokens.toLocaleString()} tokens (optimize pagination/truncation)`,
+          { tool: sub.tool_name, output_tokens: tokens, sub_index: sub.sub_index }));
+      }
+    }
+  }
+  return out;
+};
+
 const invMcp001: CheckFn = (_t, steps) => {
   const totalTools = steps.reduce((n, s) => n + s.telemetry.tool_count, 0);
   const mcpCalls = steps.reduce((n, s) => n + s.telemetry.mcp_count, 0);
@@ -297,6 +350,8 @@ export const PRESET_INVARIANTS: Invariant[] = [
   { invariant_id: "INV-TOOL-005", category: "tool", description: "Bloated tool output", check: invTool005 },
   { invariant_id: "INV-TOOL-006", category: "tool", description: "Excessive total tool wall time", check: invTool006 },
   { invariant_id: "INV-TOOL-007", category: "tool", description: "Read output bloat", check: invTool007 },
+  { invariant_id: "INV-TOOL-008", category: "tool", description: "Bloated tool input parameters", check: invTool008 },
+  { invariant_id: "INV-TOOL-009", category: "tool", description: "Large tool output (medium tier)", check: invTool009 },
   { invariant_id: "INV-MCP-001", category: "mcp", description: "MCP-heavy session", check: invMcp001 },
   { invariant_id: "INV-MCP-002", category: "mcp", description: "MCP thrashing", check: invMcp002 },
   { invariant_id: "INV-SKILL-001", category: "skill", description: "Skill read but over-explore", check: invSkill001 },

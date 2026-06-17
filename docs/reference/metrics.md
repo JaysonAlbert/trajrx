@@ -49,6 +49,31 @@ Tool wall time is **not** the same as session wall time — it excludes thinking
 | Assistant 步骤 | IR `metadata.step_count` | Assistant steps with substeps |
 | 步数比 | Report | `step_count / user_turns` |
 | 工具输出 tokens | Checker telemetry | Estimated or parsed output token sum |
+| 工具传参（最大/均） | `analysis-report.md` §2 | Per-call input param count (Shell flags/env; JSON keys for structured tools) |
+| 高传参 / 高输出调用 | Checker telemetry | Calls with ≥8 params or ≥10k output tokens |
+
+## Tool input parameters
+
+TrajRx estimates how many parameters each tool invocation passes, to surface CLI ergonomics issues (e.g. long `harness test run` command lines).
+
+| Tool type | Counting rule |
+|-----------|---------------|
+| **Shell** | `--long-flags`, short `-x` flags, Maven `-Dprop=`, and `ENV_VAR=` assignments |
+| **Structured tools** | Non-empty keys in `tool_input` JSON (excluding `_`-prefixed internal fields) |
+
+Report thresholds for optimization candidates (`src/enrich/toolInputMetrics.ts`):
+
+| Signal | Medium | High |
+|--------|--------|------|
+| Param count | ≥ 8 | ≥ 12 |
+| Input chars | ≥ 600 | ≥ 1200 |
+| Output tokens | ≥ 10,000 | ≥ 50,000 |
+
+`analysis-report.md` §4 lists optimization candidates; §4 传参 Top 15 ranks aggregated commands by param count.
+
+Related invariants: `INV-TOOL-008` (input bloat), `INV-TOOL-005` / `INV-TOOL-009` (output bloat tiers).
+
+## Tool output tokens
 | TrajRx run duration | `run-summary` | Wall time of the TrajRx pipeline itself, not the agent session |
 
 ## Terminal summary

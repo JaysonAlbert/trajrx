@@ -33,6 +33,8 @@ Violations are aggregated by `src/judge/attributor.ts` into session-level attrib
 | `INV-TOOL-005` | Bloated tool output |
 | `INV-TOOL-006` | Excessive total tool wall time |
 | `INV-TOOL-007` | Read output bloat |
+| `INV-TOOL-008` | Bloated tool input parameters — Shell flags/env or JSON field count |
+| `INV-TOOL-009` | Large tool output (10k–50k tokens) |
 
 ## MCP invariants
 
