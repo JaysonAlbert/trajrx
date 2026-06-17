@@ -65,6 +65,12 @@ export interface TrajectoryIR {
     user_turns?: number;
     tool_efficiency?: Record<string, unknown>;
     codex?: Record<string, unknown>;
+    session?: Record<string, unknown>;
+    session_wall_ms?: number;
+    session_active_wall_ms?: number;
+    user_idle_ms?: number;
+    session_started_at?: string;
+    session_ended_at?: string;
   };
   steps: TrajectoryStep[];
 }

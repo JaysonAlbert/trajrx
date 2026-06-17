@@ -3,6 +3,7 @@ import { flattenCodexSteps, parseCodexRollout } from "./codexParser.js";
 import type { CodexRolloutEvent } from "../types/codex.js";
 import type { Substep, ToolExecutionMetrics, TrajectoryIR, TrajectoryStep } from "../types/index.js";
 import { validateIr } from "./schema.js";
+import { computeCodexUserIdleMs, wallMsFromTimestamps } from "./sessionMetrics.js";
 
 function mapToolName(name: string, input: Record<string, unknown>): string {
   if (name === "exec_command") {
@@ -136,6 +137,10 @@ export function codexIr(
     });
   }
 
+  const sessionWallMs = wallMsFromTimestamps(session.started_at, session.ended_at);
+  const userIdleMs = computeCodexUserIdleMs(session);
+  const sessionActiveWallMs = sessionWallMs != null ? Math.max(0, sessionWallMs - userIdleMs) : undefined;
+
   const ir: TrajectoryIR = {
     trajectory_id: session.trajectory_id,
     source: "codex",
@@ -145,6 +150,11 @@ export function codexIr(
       step_count: trajectorySteps.length,
       user_turns: userTurns,
       tool_efficiency: toolEfficiency,
+      session_wall_ms: sessionWallMs,
+      session_active_wall_ms: sessionActiveWallMs,
+      user_idle_ms: userIdleMs,
+      session_started_at: session.started_at,
+      session_ended_at: session.ended_at,
       codex: {
         cwd: session.cwd,
         model: session.model,

@@ -16,3 +16,5 @@ dist/
 *.tsbuildinfo
 test/fixtures/
 reports/
+docs/.vitepress/cache/
+docs/.vitepress/dist/

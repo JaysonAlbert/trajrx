@@ -2,6 +2,7 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { CheckerResult, TrajectoryIR, Violation } from "../types/index.js";
 import { PRESET_INVARIANTS, exportStaticInvariants } from "./presets.js";
+import { resolveSessionActiveWallMs, resolveSessionWallMs, resolveUserIdleMs } from "../ir/sessionMetrics.js";
 
 function aggregateTelemetry(traj: TrajectoryIR, steps: TrajectoryIR["steps"]) {
   const tool_names: Record<string, number> = {};
@@ -13,9 +14,15 @@ function aggregateTelemetry(traj: TrajectoryIR, steps: TrajectoryIR["steps"]) {
   const totalToolDuration = steps.reduce((n, s) => n + (s.telemetry.tool_duration_ms ?? 0), 0);
   const totalOutputTokens = steps.reduce((n, s) => n + (s.telemetry.tool_output_tokens ?? 0), 0);
   const totalTools = steps.reduce((n, s) => n + s.telemetry.tool_count, 0);
+  const sessionWallMs = resolveSessionWallMs(traj);
+  const userIdleMs = resolveUserIdleMs(traj);
+  const sessionActiveWallMs = resolveSessionActiveWallMs(traj);
   return {
     step_count: steps.length,
     user_turns: traj.metadata.user_turns ?? 0,
+    session_wall_ms: sessionWallMs,
+    session_active_wall_ms: sessionActiveWallMs,
+    user_idle_ms: userIdleMs,
     total_tool_calls: totalTools,
     total_mcp_calls: steps.reduce((n, s) => n + s.telemetry.mcp_count, 0),
     total_shell_calls: steps.reduce((n, s) => n + s.telemetry.shell_count, 0),

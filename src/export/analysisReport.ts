@@ -1,5 +1,6 @@
 import type { Attribution, CheckerResult, TrajectoryIR, ToolExecutionMetrics } from "../types/index.js";
 import { formatDuration, formatTokenCount } from "../enrich/toolMetrics.js";
+import { resolveSessionActiveWallMs, resolveSessionWallMs, resolveUserIdleMs } from "../ir/sessionMetrics.js";
 
 export interface CommandCallRow {
   step: number;
@@ -250,6 +251,34 @@ export function buildAnalysisReport(input: AnalysisReportInput): string {
 
   const topByTime = [...allAgg].sort((a, b) => b.total_duration_ms - a.total_duration_ms).slice(0, 15);
   const topByTokens = [...allAgg].sort((a, b) => b.total_output_tokens - a.total_output_tokens).slice(0, 15);
+  const sessionWallMs = resolveSessionWallMs(traj);
+  const userIdleMs = resolveUserIdleMs(traj);
+  const sessionActiveWallMs = resolveSessionActiveWallMs(traj);
+  const userTurns = traj.metadata.user_turns ?? 0;
+  const stepCount = traj.metadata.step_count ?? traj.steps.length;
+  const stepRatio = userTurns > 0 ? `${(stepCount / userTurns).toFixed(1)}:1` : "—";
+
+  const metricRows: Array<[string, string]> = [
+    ["用户轮次", String(userTurns)],
+    ["Assistant 步骤", String(stepCount)],
+    ["步数比 (assistant:user)", stepRatio],
+  ];
+  if (sessionWallMs != null) {
+    metricRows.push(["会话墙时（含用户等待）", formatDuration(sessionWallMs)]);
+  }
+  if (sessionActiveWallMs != null) {
+    metricRows.push(["会话活跃墙时（扣除用户等待）", formatDuration(sessionActiveWallMs)]);
+  }
+  if (userIdleMs != null && userIdleMs > 0) {
+    metricRows.push(["用户等待时间", formatDuration(userIdleMs)]);
+  }
+  metricRows.push(
+    ["工具调用次数", String(tel.total_tool_calls ?? rows.length)],
+    ["工具总墙时", formatDuration(Number(tel.total_tool_duration_ms ?? 0))],
+    ["工具输出 tokens", `~${formatTokenCount(Number(tel.total_output_tokens ?? 0))}`],
+    ["静态主因", `**${attr.primary_cause}** (${attr.confidence})`],
+    ["Violations", String(checker.violation_count)],
+  );
 
   const lines: string[] = [
     `# Session 分析报告 — \`${traj.trajectory_id}\``,
@@ -262,18 +291,9 @@ export function buildAnalysisReport(input: AnalysisReportInput): string {
     "",
     "## 2. 会话指标",
     "",
-    mdTable(
-      ["指标", "值"],
-      [
-        ["用户轮次", String(traj.metadata.user_turns ?? 0)],
-        ["Assistant 步骤", String(traj.metadata.step_count ?? traj.steps.length)],
-        ["工具调用次数", String(tel.total_tool_calls ?? rows.length)],
-        ["工具总墙时", formatDuration(Number(tel.total_tool_duration_ms ?? 0))],
-        ["工具输出 tokens", `~${formatTokenCount(Number(tel.total_output_tokens ?? 0))}`],
-        ["静态主因", `**${attr.primary_cause}** (${attr.confidence})`],
-        ["Violations", String(checker.violation_count)],
-      ]
-    ),
+    mdTable(["指标", "值"], metricRows),
+    "",
+    "> **会话墙时（含用户等待）**：首条 → 末条 transcript 事件跨度。**会话活跃墙时**：扣除各轮用户输入之间的等待空档（上一轮 agent 最后活动 → 下一条用户消息）。",
     "",
     "## 3. 归因与 Top Violations",
     "",

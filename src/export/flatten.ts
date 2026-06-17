@@ -1,6 +1,7 @@
 import type { Attribution, CheckerResult, ToolExecutionMetrics, TrajectoryIR, Violation } from "../types/index.js";
 import type { CursorEvent } from "../types/index.js";
 import { formatDuration, formatTokenCount } from "../enrich/toolMetrics.js";
+import { resolveSessionActiveWallMs, resolveSessionWallMs, resolveUserIdleMs } from "../ir/sessionMetrics.js";
 
 const USER_QUERY_RE = /<user_query>\s*(.*?)\s*<\/user_query>/s;
 const REDACTED_RE = /\[REDACTED\]/g;
@@ -239,6 +240,9 @@ export function buildReport(traj: TrajectoryIR, checker: CheckerResult, attr: At
     `| Critical step | ${attr.critical_step} |`,
     `| Assistant steps | ${tel.step_count ?? 0} |`,
     `| User turns | ${tel.user_turns ?? 0} |`,
+    resolveSessionWallMs(traj) != null ? `| Session wall time (gross) | ${formatDuration(resolveSessionWallMs(traj)!)} |` : null,
+    resolveSessionActiveWallMs(traj) != null ? `| Session active wall time (net) | ${formatDuration(resolveSessionActiveWallMs(traj)!)} |` : null,
+    resolveUserIdleMs(traj) != null && resolveUserIdleMs(traj)! > 0 ? `| User idle time | ${formatDuration(resolveUserIdleMs(traj)!)} |` : null,
     `| Violations | ${checker.violation_count} |`,
     "",
   ];

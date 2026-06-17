@@ -40,11 +40,25 @@ trajrx transcript.jsonl --flatten-only -o session.flat.md
 # Batch all .jsonl under a directory
 trajrx ~/.cursor/projects --batch
 
-# Codex rollout trace (auto-detected)
+# Resolve by Codex thread title (uses ~/.codex/session_index.jsonl → rollout jsonl)
+trajrx --source codex --title "修复 ZYTGXT-131287" --list-sessions
+trajrx --source codex --title "修复 ZYTGXT-131287" --run-name ZYTGXT-131287 --agent-eval
+
+# Resolve by Cursor first user message under ~/.cursor/projects/**/agent-transcripts/
+trajrx --source cursor --title "ZYTGXT-117563" --list-sessions
+trajrx --source cursor --title "ZYTGXT-117563" --run-name cursor-analysis
+
+# Limit Cursor search to one workspace project slug
+trajrx --source cursor --cursor-project Users-you-Projects-myrepo --title "fix login bug" --list-sessions
+
+# Codex rollout trace (direct path, auto-detected)
 trajrx ~/.codex/sessions/2026/06/15/rollout-*.jsonl --run-name codex-analysis
 
-# Full pipeline + LLM agent evaluation (cursor-agent --mode ask --model auto -p)
-trajrx transcript.jsonl --run-name my-analysis --agent-eval
+# Full pipeline + LLM agent evaluation
+trajrx --source codex --title "修复 ZYTGXT-131287" --run-name ZYTGXT-131287 --agent-eval
+
+# Verbose stdout (full stage log always saved to runs/<name>/run.log)
+trajrx transcript.jsonl --run-name my-analysis --verbose
 
 # Re-run LLM eval on an existing run directory
 trajrx runs/my-analysis --agent-eval-only --agent-cli cursor --agent-model auto
@@ -63,13 +77,30 @@ trajrx transcript.jsonl --agent-eval --agent-cli codex --agent-model o3
 | `TRAJRX_AGENT_EVAL` | off | Set `1` to enable `--agent-eval` by default |
 | `TRAJRX_AGENT_CLI` | `cursor` | Default agent CLI: `cursor` \| `claude` \| `codex` |
 | `TRAJRX_AGENT_MODEL` | profile default | Model flag passed to agent CLI (`auto` for cursor) |
+| `TRAJRX_CODEX_HOME` | `~/.codex` | Codex data root for `--source codex --title` lookup |
+| `TRAJRX_CURSOR_HOME` | `~/.cursor` | Cursor data root for `--source cursor --title` lookup |
+| `TRAJRX_PLAIN=1` | off | Force plain-line stage progress (no listr2 TUI) |
+
+Each run writes `run.log`, `run-summary.md`, and `run-summary.json`. The terminal summary uses [boxen](https://github.com/sindresorhus/boxen) and highlights report paths (`analysis-report.md`, `agent-evaluation.md`).
 
 ## Local test fixtures
 
 Transcript fixtures are gitignored (see [test/fixtures/README.md](./test/fixtures/README.md)). Copy your own `.jsonl` into `test/fixtures/` for local runs.
 
-See [PLAN.md](./PLAN.md) for architecture.
+See [PLAN.md](./PLAN.md) for architecture, or the full docs site:
+
+```bash
+npm run docs:dev    # local preview at http://localhost:5173
+npm run docs:build  # static site → docs/.vitepress/dist
+```
 
 ### Codex vs Cursor
 
 TrajRx auto-detects transcript format. Codex rollout traces use `event_msg` + `function_call` events (not Cursor's `role`/`tool_use`). Codex-specific invariants include background `write_stdin` polling (`INV-CODEX-001`) and long step gaps (`INV-CODEX-002`).
+
+**Title lookup differs by source:**
+
+| Source | Index | Match field |
+|--------|-------|-------------|
+| `codex` | `~/.codex/session_index.jsonl` | `thread_name` (UI title) → rollout `sessions/**/rollout-*-{id}.jsonl` |
+| `cursor` | `~/.cursor/projects/**/agent-transcripts/` | First user message in each transcript (subagents excluded) |
