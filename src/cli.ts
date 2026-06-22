@@ -4,16 +4,23 @@ import { join } from "node:path";
 import type { AgentCliId } from "./agentCli/types.js";
 import { isAgentEvalEnabled, type TranscriptSource } from "./config.js";
 import { agentEvalOnly, flattenOnly, processFile, regenerateAnalysisFromRunDir } from "./pipeline.js";
+import { formatRunsList, listRuns } from "./runs/list.js";
 import { formatSessionMatches, resolveSessionByTitle, searchSessionsByTitle } from "./session/search.js";
+import { getRunsDir } from "./config.js";
 
 const USAGE = `Usage:
   trajrx <transcript.jsonl> [--run-name NAME] [--agent-eval]
   trajrx --source codex|cursor --title "会话标题" [--run-name NAME] [--agent-eval]
   trajrx --source codex|cursor --title "会话标题" --list-sessions
+  trajrx runs list [--limit N]
   trajrx <transcript.jsonl> --flatten-only [-o out.md]
   trajrx <run-dir> --analysis-only
   trajrx <run-dir> --agent-eval-only [--agent-cli cursor|claude|codex] [--agent-model MODEL]
   trajrx <dir> --batch [--agent-eval]
+
+Runs:
+  runs list             List analysis runs under ~/.trajrx/runs (or TRAJRX_RUNS_DIR)
+  --limit N             Max runs to show (default 50)
 
 Session lookup:
   --source              Transcript source when using --title: codex | cursor
@@ -35,6 +42,28 @@ Environment:
   TRAJRX_AGENT_MODEL    Default model for agent CLI
   TRAJRX_CODEX_HOME     Codex data root (default ~/.codex)
   TRAJRX_CURSOR_HOME    Cursor data root (default ~/.cursor)`;
+
+function parseRunsListArgs(argv: string[]): { limit?: number; showHelp: boolean } {
+  let limit: number | undefined;
+  let showHelp = false;
+  for (let i = 0; i < argv.length; i++) {
+    const a = argv[i];
+    if (a === "--help" || a === "-h") showHelp = true;
+    else if (a === "--limit") {
+      const raw = argv[++i];
+      const n = Number(raw);
+      if (!raw || !Number.isFinite(n) || n < 1) {
+        throw new Error("--limit requires a positive number");
+      }
+      limit = Math.floor(n);
+    } else if (a.startsWith("-")) {
+      throw new Error(`Unknown option for runs list: ${a}`);
+    } else {
+      throw new Error(`Unexpected argument for runs list: ${a}`);
+    }
+  }
+  return { limit, showHelp };
+}
 
 function parseArgs(argv: string[]) {
   const args = argv.slice(2);
@@ -141,6 +170,24 @@ async function resolveInputPath(
 }
 
 async function main() {
+  const argv = process.argv.slice(2);
+  if (argv[0] === "runs") {
+    if (!argv[1] || argv[1] === "list") {
+      const { limit, showHelp } = parseRunsListArgs(argv.slice(argv[1] === "list" ? 2 : 1));
+      if (showHelp || !argv[1]) {
+        console.log(USAGE);
+        process.exit(showHelp ? 0 : 1);
+      }
+      const runsDir = getRunsDir();
+      const entries = listRuns({ runsDir, limit });
+      console.log(formatRunsList(entries, runsDir));
+      return;
+    }
+    console.error(`Unknown runs subcommand: ${argv[1]}`);
+    console.error("Try: trajrx runs list");
+    process.exit(1);
+  }
+
   const {
     input,
     runName,

@@ -8,11 +8,7 @@ export function getRunsDir(): string {
   if (process.env.TRAJRX_RUNS_DIR) {
     return process.env.TRAJRX_RUNS_DIR;
   }
-  // Global install: write under cwd by default (not into node_modules)
-  if (process.env.TRAJRX_HOME) {
-    return join(process.env.TRAJRX_HOME, "runs");
-  }
-  return join(process.cwd(), "runs");
+  return join(getTrajrxHome(), "runs");
 }
 
 /** Optional default home for config/cache (~/.trajrx). */
