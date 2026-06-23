@@ -1,8 +1,12 @@
-import { createReadStream, existsSync, readdirSync, readFileSync, statSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { createReadStream, existsSync, readdirSync, statSync } from "node:fs";
+import { createRequire } from "node:module";
 import { basename, join } from "node:path";
 import { createInterface } from "node:readline";
 import type { TranscriptSource } from "../config.js";
 import { getCodexHome, getCursorHome } from "../config.js";
+
+const require = createRequire(import.meta.url);
 
 export interface SessionMatch {
   source: TranscriptSource;
@@ -23,10 +27,12 @@ export interface SearchSessionsOptions {
   limit?: number;
 }
 
-interface CodexIndexEntry {
+interface CodexThreadRow {
   id: string;
-  thread_name: string;
-  updated_at?: string;
+  title: string;
+  first_user_message?: string;
+  rollout_path?: string;
+  updated_at_ms?: number;
 }
 
 function normalizeQuery(query: string): string {
@@ -58,55 +64,120 @@ function walkFiles(root: string, predicate: (path: string, name: string) => bool
   return out;
 }
 
-function loadCodexIndex(indexPath: string): CodexIndexEntry[] {
-  if (!existsSync(indexPath)) return [];
-  const entries: CodexIndexEntry[] = [];
-  for (const line of readFileSync(indexPath, "utf-8").split("\n")) {
-    const ln = line.trim();
-    if (!ln) continue;
-    try {
-      const row = JSON.parse(ln) as Record<string, unknown>;
-      const id = String(row.id ?? "");
-      const thread_name = String(row.thread_name ?? "");
-      if (!id || !thread_name) continue;
-      entries.push({
-        id,
-        thread_name,
-        updated_at: row.updated_at ? String(row.updated_at) : undefined,
-      });
-    } catch {
-      // skip malformed lines
-    }
-  }
-  return entries;
-}
-
 function findCodexRolloutPath(sessionsRoot: string, threadId: string): string | undefined {
+  if (!existsSync(sessionsRoot)) return undefined;
   const suffix = `${threadId}.jsonl`;
   const hits = walkFiles(sessionsRoot, (_p, name) => name.startsWith("rollout-") && name.endsWith(suffix));
   hits.sort((a, b) => statSync(b).mtimeMs - statSync(a).mtimeMs);
   return hits[0];
 }
 
+function findCodexStateDb(codexHome: string): string | undefined {
+  if (!existsSync(codexHome)) return undefined;
+  const hits = readdirSync(codexHome)
+    .filter((name) => /^state_\d+\.sqlite$/.test(name))
+    .map((name) => join(codexHome, name))
+    .sort((a, b) => {
+      const na = Number(/state_(\d+)\.sqlite$/.exec(a)?.[1] ?? 0);
+      const nb = Number(/state_(\d+)\.sqlite$/.exec(b)?.[1] ?? 0);
+      return nb - na;
+    });
+  return hits[0];
+}
+
+function codexUpdatedAtIso(updatedAtMs?: number): string | undefined {
+  if (!updatedAtMs || !Number.isFinite(updatedAtMs)) return undefined;
+  return new Date(updatedAtMs).toISOString();
+}
+
+function loadCodexThreadsFromStateDb(stateDbPath: string): CodexThreadRow[] {
+  try {
+    const { DatabaseSync } = require("node:sqlite") as typeof import("node:sqlite");
+    const db = new DatabaseSync(stateDbPath, { readOnly: true });
+    try {
+      return db
+        .prepare(
+          `SELECT id, title, first_user_message, rollout_path, updated_at_ms
+           FROM threads
+           WHERE archived = 0`,
+        )
+        .all() as unknown as CodexThreadRow[];
+    } finally {
+      db.close();
+    }
+  } catch {
+    try {
+      const out = execFileSync(
+        "sqlite3",
+        [
+          "-json",
+          stateDbPath,
+          `SELECT id, title, first_user_message, rollout_path, updated_at_ms
+           FROM threads
+           WHERE archived = 0`,
+        ],
+        { encoding: "utf-8", maxBuffer: 64 * 1024 * 1024 },
+      );
+      return JSON.parse(out || "[]") as CodexThreadRow[];
+    } catch {
+      return [];
+    }
+  }
+}
+
+function codexTitleMatchScore(title: string, firstUserMessage: string | undefined, query: string): number {
+  const scores = [titleMatchScore(title, query)];
+  if (firstUserMessage && firstUserMessage !== title) {
+    scores.push(titleMatchScore(firstUserMessage, query));
+  }
+  return Math.max(...scores);
+}
+
+function resolveCodexTranscriptPath(
+  codexHome: string,
+  threadId: string,
+  rolloutPath?: string,
+): string | undefined {
+  if (rolloutPath && existsSync(rolloutPath)) return rolloutPath;
+  const fromSessions = findCodexRolloutPath(join(codexHome, "sessions"), threadId);
+  if (fromSessions) return fromSessions;
+  return findCodexRolloutPath(join(codexHome, "archived_sessions"), threadId);
+}
+
+function codexMatchFromTitleFields(
+  query: string,
+  codexHome: string,
+  row: { id: string; title: string; first_user_message?: string; rollout_path?: string; updated_at?: string },
+): SessionMatch | undefined {
+  const score = codexTitleMatchScore(row.title, row.first_user_message, query);
+  if (score <= 0) return undefined;
+  const transcript_path = resolveCodexTranscriptPath(codexHome, row.id, row.rollout_path);
+  if (!transcript_path) return undefined;
+  return {
+    source: "codex",
+    title: row.title,
+    session_id: row.id,
+    transcript_path,
+    updated_at: row.updated_at,
+    score,
+  };
+}
+
 function searchCodexSessions(query: string, codexHome: string): SessionMatch[] {
   const q = normalizeQuery(query);
-  const indexPath = join(codexHome, "session_index.jsonl");
-  const sessionsRoot = join(codexHome, "sessions");
-  const matches: SessionMatch[] = [];
+  const stateDbPath = findCodexStateDb(codexHome);
+  if (!stateDbPath) return [];
 
-  for (const entry of loadCodexIndex(indexPath)) {
-    const score = titleMatchScore(entry.thread_name, query);
-    if (score <= 0) continue;
-    const transcript_path = findCodexRolloutPath(sessionsRoot, entry.id);
-    if (!transcript_path) continue;
-    matches.push({
-      source: "codex",
-      title: entry.thread_name,
-      session_id: entry.id,
-      transcript_path,
-      updated_at: entry.updated_at,
-      score,
+  const matches: SessionMatch[] = [];
+  for (const row of loadCodexThreadsFromStateDb(stateDbPath)) {
+    const match = codexMatchFromTitleFields(query, codexHome, {
+      id: row.id,
+      title: row.title,
+      first_user_message: row.first_user_message,
+      rollout_path: row.rollout_path,
+      updated_at: codexUpdatedAtIso(row.updated_at_ms),
     });
+    if (match) matches.push(match);
   }
 
   return sortMatches(matches, q);

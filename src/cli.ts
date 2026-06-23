@@ -24,7 +24,7 @@ Runs:
 
 Session lookup:
   --source              Transcript source when using --title: codex | cursor
-  --title               Match session by title (Codex: session_index thread_name; Cursor: first user message)
+  --title               Match session by title (Codex: state_*.sqlite threads; Cursor: first user message)
   --list-sessions       Print matching sessions and exit (requires --source --title)
   --cursor-project      Limit Cursor search to one project slug under ~/.cursor/projects/
 
