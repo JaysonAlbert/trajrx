@@ -10,8 +10,8 @@ import { getRunsDir } from "./config.js";
 
 const USAGE = `Usage:
   trajrx <transcript.jsonl> [--run-name NAME] [--agent-eval]
-  trajrx --source codex|cursor --title "会话标题" [--run-name NAME] [--agent-eval]
-  trajrx --source codex|cursor --title "会话标题" --list-sessions
+  trajrx --source codex|cursor --title "会话标题" [--exact] [--run-name NAME] [--agent-eval]
+  trajrx --source codex|cursor --title "会话标题" [--exact] --list-sessions
   trajrx runs list [--limit N]
   trajrx <transcript.jsonl> --flatten-only [-o out.md]
   trajrx <run-dir> --analysis-only
@@ -25,6 +25,7 @@ Runs:
 Session lookup:
   --source              Transcript source when using --title: codex | cursor
   --title               Match session by title (Codex: state_*.sqlite threads; Cursor: first user message)
+  --exact               Require exact title match (no substring); use with --title
   --list-sessions       Print matching sessions and exit (requires --source --title)
   --cursor-project      Limit Cursor search to one project slug under ~/.cursor/projects/
 
@@ -81,6 +82,7 @@ function parseArgs(argv: string[]) {
   let title: string | undefined;
   let source: TranscriptSource | undefined;
   let listSessions = false;
+  let exact = false;
   let cursorProject: string | undefined;
   let showHelp = false;
   let verbose = false;
@@ -102,6 +104,7 @@ function parseArgs(argv: string[]) {
     else if (a === "--title") title = args[++i];
     else if (a === "--source") source = args[++i] as TranscriptSource;
     else if (a === "--list-sessions") listSessions = true;
+    else if (a === "--exact") exact = true;
     else if (a === "--cursor-project") cursorProject = args[++i];
     else if (a === "--verbose") verbose = true;
     else if (!a.startsWith("-")) input = a;
@@ -122,6 +125,7 @@ function parseArgs(argv: string[]) {
     title,
     source,
     listSessions,
+    exact,
     cursorProject,
     showHelp,
     verbose,
@@ -153,10 +157,11 @@ async function resolveInputPath(
   title: string | undefined,
   source: TranscriptSource | undefined,
   cursorProject?: string,
+  exact?: boolean,
 ): Promise<{ path: string; sessionTitle?: string }> {
   if (title) {
     const src = assertSource(source);
-    const match = await resolveSessionByTitle({ source: src, query: title, cursorProject });
+    const match = await resolveSessionByTitle({ source: src, query: title, cursorProject, exact });
     console.log(`Session  ${match.title}`);
     console.log(`Source   ${src} · ${match.session_id}`);
     console.log(`File     ${match.transcript_path}`);
@@ -203,6 +208,7 @@ async function main() {
     title,
     source,
     listSessions,
+    exact,
     cursorProject,
     showHelp,
     verbose,
@@ -216,8 +222,8 @@ async function main() {
   if (title) {
     const src = assertSource(source);
     if (listSessions) {
-      const matches = await searchSessionsByTitle({ source: src, query: title, cursorProject });
-      console.log(formatSessionMatches(matches, title, src));
+      const matches = await searchSessionsByTitle({ source: src, query: title, cursorProject, exact });
+      console.log(formatSessionMatches(matches, title, src, exact));
       return;
     }
   }
@@ -251,7 +257,7 @@ async function main() {
     return;
   }
 
-  const resolved = await resolveInputPath(input, title, source, cursorProject);
+  const resolved = await resolveInputPath(input, title, source, cursorProject, exact);
 
   if (flattenOnlyFlag) {
     flattenOnly(resolved.path, output, runName);

@@ -25,6 +25,8 @@ export interface SearchSessionsOptions {
   cursorHome?: string;
   cursorProject?: string;
   limit?: number;
+  /** When true, only exact title matches (case-sensitive or insensitive). */
+  exact?: boolean;
 }
 
 interface CodexThreadRow {
@@ -39,7 +41,7 @@ function normalizeQuery(query: string): string {
   return query.trim().toLowerCase();
 }
 
-function titleMatchScore(title: string, query: string): number {
+function titleMatchScore(title: string, query: string, exact = false): number {
   const t = title.trim();
   const q = query.trim();
   if (!t || !q) return 0;
@@ -47,6 +49,7 @@ function titleMatchScore(title: string, query: string): number {
   const tl = t.toLowerCase();
   const ql = q.toLowerCase();
   if (tl === ql) return 95;
+  if (exact) return 0;
   if (tl.includes(ql)) return 80;
   if (ql.includes(tl) && tl.length >= 8) return 70;
   return 0;
@@ -125,10 +128,15 @@ function loadCodexThreadsFromStateDb(stateDbPath: string): CodexThreadRow[] {
   }
 }
 
-function codexTitleMatchScore(title: string, firstUserMessage: string | undefined, query: string): number {
-  const scores = [titleMatchScore(title, query)];
-  if (firstUserMessage && firstUserMessage !== title) {
-    scores.push(titleMatchScore(firstUserMessage, query));
+function codexTitleMatchScore(
+  title: string,
+  firstUserMessage: string | undefined,
+  query: string,
+  exact = false,
+): number {
+  const scores = [titleMatchScore(title, query, exact)];
+  if (!exact && firstUserMessage && firstUserMessage !== title) {
+    scores.push(titleMatchScore(firstUserMessage, query, exact));
   }
   return Math.max(...scores);
 }
@@ -148,8 +156,9 @@ function codexMatchFromTitleFields(
   query: string,
   codexHome: string,
   row: { id: string; title: string; first_user_message?: string; rollout_path?: string; updated_at?: string },
+  exact = false,
 ): SessionMatch | undefined {
-  const score = codexTitleMatchScore(row.title, row.first_user_message, query);
+  const score = codexTitleMatchScore(row.title, row.first_user_message, query, exact);
   if (score <= 0) return undefined;
   const transcript_path = resolveCodexTranscriptPath(codexHome, row.id, row.rollout_path);
   if (!transcript_path) return undefined;
@@ -163,7 +172,7 @@ function codexMatchFromTitleFields(
   };
 }
 
-function searchCodexSessions(query: string, codexHome: string): SessionMatch[] {
+function searchCodexSessions(query: string, codexHome: string, exact = false): SessionMatch[] {
   const q = normalizeQuery(query);
   const stateDbPath = findCodexStateDb(codexHome);
   if (!stateDbPath) return [];
@@ -176,7 +185,7 @@ function searchCodexSessions(query: string, codexHome: string): SessionMatch[] {
       first_user_message: row.first_user_message,
       rollout_path: row.rollout_path,
       updated_at: codexUpdatedAtIso(row.updated_at_ms),
-    });
+    }, exact);
     if (match) matches.push(match);
   }
 
@@ -224,7 +233,12 @@ function isCursorTranscriptPath(path: string): boolean {
   return basename(join(path, "..")) === id;
 }
 
-async function searchCursorSessions(query: string, cursorHome: string, cursorProject?: string): Promise<SessionMatch[]> {
+async function searchCursorSessions(
+  query: string,
+  cursorHome: string,
+  cursorProject?: string,
+  exact = false,
+): Promise<SessionMatch[]> {
   const q = normalizeQuery(query);
   const projectsRoot = join(cursorHome, "projects");
   if (!existsSync(projectsRoot)) return [];
@@ -240,7 +254,7 @@ async function searchCursorSessions(query: string, cursorHome: string, cursorPro
       if (!isCursorTranscriptPath(transcript_path)) continue;
       const firstUser = await extractCursorFirstUserText(transcript_path);
       if (!firstUser) continue;
-      const score = titleMatchScore(firstUser, query);
+      const score = titleMatchScore(firstUser, query, exact);
       if (score <= 0) continue;
       const session_id = basename(transcript_path, ".jsonl");
       const st = statSync(transcript_path);
@@ -275,9 +289,9 @@ export async function searchSessionsByTitle(opts: SearchSessionsOptions): Promis
 
   let matches: SessionMatch[];
   if (opts.source === "codex") {
-    matches = searchCodexSessions(opts.query, codexHome);
+    matches = searchCodexSessions(opts.query, codexHome, opts.exact);
   } else {
-    matches = await searchCursorSessions(opts.query, cursorHome, opts.cursorProject);
+    matches = await searchCursorSessions(opts.query, cursorHome, opts.cursorProject, opts.exact);
   }
   return matches.slice(0, limit);
 }
@@ -285,7 +299,8 @@ export async function searchSessionsByTitle(opts: SearchSessionsOptions): Promis
 export async function resolveSessionByTitle(opts: SearchSessionsOptions): Promise<SessionMatch> {
   const matches = await searchSessionsByTitle({ ...opts, limit: 10 });
   if (!matches.length) {
-    throw new Error(`No ${opts.source} session matched title/query "${opts.query}"`);
+    const exactHint = opts.exact ? "" : " (try --exact for full-title match only)";
+    throw new Error(`No ${opts.source} session matched title/query "${opts.query}"${exactHint}`);
   }
   const topScore = matches[0]!.score;
   const top = matches.filter((m) => m.score === topScore);
@@ -301,9 +316,14 @@ export async function resolveSessionByTitle(opts: SearchSessionsOptions): Promis
   return matches[0]!;
 }
 
-export function formatSessionMatches(matches: SessionMatch[], query: string, source: TranscriptSource): string {
+export function formatSessionMatches(
+  matches: SessionMatch[],
+  query: string,
+  source: TranscriptSource,
+  exact = false,
+): string {
   const lines = [
-    `source=${source} query="${query}" matches=${matches.length}`,
+    `source=${source} query="${query}" exact=${exact} matches=${matches.length}`,
     "",
   ];
   if (!matches.length) {
