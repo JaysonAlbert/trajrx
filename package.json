@@ -23,6 +23,7 @@
     "start": "node dist/cli.js",
     "dev": "tsx src/cli.ts",
     "analyze": "node dist/cli.js",
+    "test": "npm run build && node --test test/*.test.mjs",
     "test:fixture": "node -e \"console.error('Add a local .jsonl under test/fixtures/ (gitignored). See test/fixtures/README.md'); process.exit(1)\"",
     "docs:dev": "vitepress dev docs",
     "docs:build": "vitepress build docs",

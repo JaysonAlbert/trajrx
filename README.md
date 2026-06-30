@@ -68,6 +68,17 @@ trajrx transcript.jsonl --agent-eval --agent-cli claude --agent-model sonnet
 trajrx transcript.jsonl --agent-eval --agent-cli codex --agent-model o3
 ```
 
+### Session index for Harness Console
+
+Build a lightweight Codex/Cursor session index without running the full analysis pipeline:
+
+```bash
+trajrx session scan --output ~/.trajrx/session-index.json
+trajrx session analyze --changed-only --output ~/.trajrx/session-index.json
+```
+
+`--changed-only` preserves cached analysis for unchanged transcript files by comparing mtime and size. Harness Console reads this JSON as a recovery index for active or unfinished Codex/Cursor sessions.
+
 ## Environment
 
 | Variable | Default | Purpose |
