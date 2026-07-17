@@ -2,9 +2,19 @@ import { existsSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { formatInvokeCommand, invokeAgentCli } from "../agentCli/runner.js";
 import { getAgentCliProfile, resolveDefaultAgentCliId, resolveDefaultAgentModel } from "../agentCli/profiles.js";
-import type { AgentCliId } from "../agentCli/types.js";
+import type { AgentCliId, AgentCliInvokeRequest, AgentCliInvokeResult } from "../agentCli/types.js";
 import type { Attribution, CheckerResult, TrajectoryIR } from "../types/index.js";
-import { buildAgentEvalPrompt, writeEvalContext, type EvalContextInput } from "./prompt.js";
+import {
+  buildUnableToJudgeEvaluation,
+  buildInitialEvalPrompt,
+  buildSupplementEvalPrompt,
+  parseSupplementRequest,
+} from "./prompt.js";
+import {
+  writeEvalSlice,
+  writeEvalSliceSupplement,
+  type EvalSliceInput,
+} from "./slice.js";
 
 export interface RunAgentEvalOptions {
   runDir: string;
@@ -12,6 +22,7 @@ export interface RunAgentEvalOptions {
   model?: string;
   sourceTranscriptPath?: string;
   timeoutMs?: number;
+  invokeAgent?: (request: AgentCliInvokeRequest) => Promise<AgentCliInvokeResult>;
 }
 
 export interface AgentEvalRecord {
@@ -20,11 +31,16 @@ export interface AgentEvalRecord {
   agent_cli: AgentCliId;
   agent_model: string;
   command: string;
+  commands: string[];
+  passes: number;
   duration_ms: number;
   exit_code: number | null;
   timed_out: boolean;
   evaluated_at: string;
   output_path: string;
+  eval_slice_path: string;
+  eval_slice_supplement_path?: string;
+  supplement_step_ids: number[];
   stderr?: string;
 }
 
@@ -63,46 +79,112 @@ function stripMarkdownFence(text: string): string {
   return m ? m[1]!.trim() : trimmed;
 }
 
+function assertSuccessfulInvocation(
+  result: AgentCliInvokeResult,
+  timeoutMs: number | undefined,
+  pass: number
+): void {
+  if (result.timedOut) {
+    throw new Error(`Agent CLI pass ${pass} timed out after ${timeoutMs ?? 600000}ms`);
+  }
+  if (result.exitCode !== 0) {
+    throw new Error(
+      `Agent CLI pass ${pass} exited ${result.exitCode}: ${result.stderr || result.stdout || "(no output)"}`
+    );
+  }
+  if (!result.stdout.trim()) {
+    throw new Error(`Agent CLI pass ${pass} returned empty stdout`);
+  }
+}
+
 export async function runAgentEval(opts: RunAgentEvalOptions): Promise<AgentEvalRecord> {
   const profileId = opts.profileId ?? resolveDefaultAgentCliId();
   const profile = getAgentCliProfile(profileId);
   const model = opts.model?.trim() || resolveDefaultAgentModel(profile);
   const { traj, checker, attr, flatMdPath } = loadRunArtifacts(opts.runDir);
 
-  const evalContextPath = writeEvalContext({
+  const slice = writeEvalSlice({
     runDir: opts.runDir,
     traj,
     checker,
     attr,
     flatMdPath,
     sourceTranscriptPath: opts.sourceTranscriptPath,
-  } satisfies EvalContextInput);
-
-  const prompt = buildAgentEvalPrompt(evalContextPath, flatMdPath);
-  const result = await invokeAgentCli({
+  } satisfies EvalSliceInput);
+  const invoke = opts.invokeAgent ?? invokeAgentCli;
+  const firstResult = await invoke({
     profileId,
     model,
-    prompt,
+    prompt: buildInitialEvalPrompt(slice.markdownPath),
     cwd: opts.runDir,
     timeoutMs: opts.timeoutMs,
   });
+  writeFileSync(
+    join(opts.runDir, "judge_output", "agent_eval_pass1.raw.txt"),
+    firstResult.stdout + "\n",
+    "utf-8"
+  );
+  assertSuccessfulInvocation(firstResult, opts.timeoutMs, 1);
 
-  const mdBody = stripMarkdownFence(result.stdout);
+  const results = [firstResult];
+  const request = parseSupplementRequest(firstResult.stdout);
+  let supplementPath: string | undefined;
+  let supplementStepIds: number[] = [];
+  let finalResult = firstResult;
+  let forcedFinalMarkdown: string | null = null;
+  if (request) {
+    const supplement = writeEvalSliceSupplement(
+      { runDir: opts.runDir, flatMdPath },
+      request.step_ids.filter((stepId) => !slice.selectedStepIds.includes(stepId))
+    );
+    supplementPath = supplement.markdownPath;
+    supplementStepIds = supplement.includedStepIds;
+    const secondResult = await invoke({
+      profileId,
+      model,
+      prompt: buildSupplementEvalPrompt(slice.markdownPath, supplement.markdownPath, request.reason),
+      cwd: opts.runDir,
+      timeoutMs: opts.timeoutMs,
+    });
+    writeFileSync(
+      join(opts.runDir, "judge_output", "agent_eval_pass2.raw.txt"),
+      secondResult.stdout + "\n",
+      "utf-8"
+    );
+    assertSuccessfulInvocation(secondResult, opts.timeoutMs, 2);
+    results.push(secondResult);
+    finalResult = secondResult;
+    const repeatedRequest = parseSupplementRequest(secondResult.stdout);
+    if (repeatedRequest) {
+      forcedFinalMarkdown = buildUnableToJudgeEvaluation(
+        repeatedRequest.reason,
+        slice.markdownPath,
+        supplement.markdownPath
+      );
+    }
+  }
+
+  const mdBody = forcedFinalMarkdown ?? stripMarkdownFence(finalResult.stdout);
   const outMd = join(opts.runDir, "agent-evaluation.md");
   writeFileSync(outMd, mdBody + "\n", "utf-8");
 
   const record: AgentEvalRecord = {
     trajectory_id: traj.trajectory_id,
-    method: "agent_cli_v1",
+    method: "agent_cli_v2_bounded_slice",
     agent_cli: profileId,
     agent_model: model,
-    command: formatInvokeCommand(result),
-    duration_ms: result.durationMs,
-    exit_code: result.exitCode,
-    timed_out: result.timedOut,
+    command: formatInvokeCommand(firstResult),
+    commands: results.map(formatInvokeCommand),
+    passes: results.length,
+    duration_ms: results.reduce((total, result) => total + result.durationMs, 0),
+    exit_code: finalResult.exitCode,
+    timed_out: results.some((result) => result.timedOut),
     evaluated_at: new Date().toISOString(),
     output_path: outMd,
-    stderr: result.stderr || undefined,
+    eval_slice_path: slice.markdownPath,
+    eval_slice_supplement_path: supplementPath,
+    supplement_step_ids: supplementStepIds,
+    stderr: results.map((result) => result.stderr).filter(Boolean).join("\n") || undefined,
   };
 
   writeFileSync(join(opts.runDir, "judge_output", "agent_evaluation.json"), JSON.stringify(record, null, 2), "utf-8");
@@ -116,22 +198,16 @@ export async function runAgentEval(opts: RunAgentEvalOptions): Promise<AgentEval
         trajrx_run: opts.runDir,
         agent_cli: profileId,
         agent_model: model,
+        agent_eval_method: record.method,
+        agent_eval_passes: record.passes,
+        eval_slice: slice.markdownPath,
+        eval_slice_supplement: supplementPath ?? null,
       },
       null,
       2
     ),
     "utf-8"
   );
-
-  if (result.timedOut) {
-    throw new Error(`Agent CLI timed out after ${opts.timeoutMs ?? 600000}ms`);
-  }
-  if (result.exitCode !== 0) {
-    throw new Error(`Agent CLI exited ${result.exitCode}: ${result.stderr || result.stdout || "(no output)"}`);
-  }
-  if (!mdBody) {
-    throw new Error("Agent CLI returned empty stdout");
-  }
 
   return record;
 }

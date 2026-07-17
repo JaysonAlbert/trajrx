@@ -15,7 +15,10 @@ runs/<name>/
 │   ├── violations.json              # All invariant violations
 │   └── static_invariants.json       # Invariant definitions snapshot
 ├── judge_output/
-│   └── attribution.json             # Rule-based attribution
+│   ├── attribution.json             # Rule-based attribution
+│   ├── agent_eval_pass1.raw.txt     # first Agent response
+│   ├── agent_eval_pass2.raw.txt     # optional second Agent response
+│   └── agent_evaluation.json        # invocation, pass, and artifact evidence
 ├── reports/
 │   ├── <session_id>.md              # Per-session report
 │   └── metrics.json                 # Session metrics
@@ -25,8 +28,10 @@ runs/<name>/
 ├── reconcile/
 │   ├── reconciliation.json          # Reconcile output
 │   └── manual_attribution.json        # Manual attribution hints
-└── eval_context.md                  # (with --agent-eval) LLM eval input
-    agent-evaluation.md              # (with --agent-eval) LLM eval output
+├── eval_slice.md                    # (with --agent-eval) deterministic bounded evidence
+├── eval_slice.json                  # slice selection and coverage metadata
+├── eval_slice_supplement.md         # optional, one requested supplemental read
+└── agent-evaluation.md              # final LLM evaluation
 ```
 
 Exact files depend on pipeline flags and transcript format.

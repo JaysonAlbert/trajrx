@@ -89,9 +89,19 @@ Output: `reconcile/reconciliation.json`, `reconcile/manual_attribution.json`
 
 When `--agent-eval` is set:
 
-1. Builds `eval_context.md` from prior artifacts
-2. Invokes external agent CLI with evaluation prompt
-3. Writes `agent-evaluation.md` (or `judge_output/attribution.json` merge depending on profile)
+1. Deterministically builds bounded `eval_slice.md` and `eval_slice.json`
+2. Invokes the external agent CLI using only the slice
+3. If the Agent returns a valid `needs_more_evidence` request, writes
+   `eval_slice_supplement.md` for at most six existing step IDs
+4. Invokes the Agent once more; no third pass is allowed
+5. Writes `agent-evaluation.md` and the pass/slice evidence in
+   `judge_output/agent_evaluation.json`
+
+The slice always prioritizes the task, every user turn, the final Assistant Step,
+the attribution `critical_step`, high-severity violations, and the top slow/output
+tool steps. Section and total-size caps are recorded in the slice coverage manifest.
+If the second pass is still insufficient, the Agent must emit a final Markdown
+evaluation with delivery outcome `无法判断`.
 
 Supported CLIs: `cursor-agent`, `claude`, `codex`.
 

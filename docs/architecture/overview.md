@@ -45,7 +45,7 @@ TrajRx is a TypeScript / Node.js ≥20 CLI that analyzes IDE agent session trans
                              ▼ (optional --agent-eval)
 ┌─────────────────────────────────────────────────────────────────┐
 │ Stage 6  eval/runAgentEval + agentCli/                          │
-│  eval_context.md → agent CLI (-p) → agent-evaluation.md         │
+│  bounded slice → agent CLI → optional supplement → evaluation   │
 │  profiles: cursor-agent | claude | codex                        │
 └─────────────────────────────────────────────────────────────────┘
 ```

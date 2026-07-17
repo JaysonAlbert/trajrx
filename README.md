@@ -5,7 +5,7 @@
 Two analysis paths:
 
 1. **Rules (default)** — flatten → IR → invariant checker → rule attributor → reconcile
-2. **LLM (optional)** — invoke an external agent CLI (`cursor-agent`, `claude`, `codex`) to read artifacts and write `agent-evaluation.md`
+2. **LLM (optional)** — deterministically build a bounded evidence slice, then invoke an external agent CLI (`cursor-agent`, `claude`, `codex`) to write `agent-evaluation.md`; one bounded supplemental step read is allowed when evidence is insufficient
 
 ## Install (global CLI)
 
@@ -67,6 +67,11 @@ trajrx runs/my-analysis --agent-eval-only --agent-cli cursor --agent-model auto
 trajrx transcript.jsonl --agent-eval --agent-cli claude --agent-model sonnet
 trajrx transcript.jsonl --agent-eval --agent-cli codex --agent-model o3
 ```
+
+Agent evaluation writes `eval_slice.md` plus coverage metadata before invoking the
+external CLI. The Agent does not scan the full transcript by default. It may request
+up to six existing step IDs once; TrajRx writes those excerpts to
+`eval_slice_supplement.md` and performs the final pass.
 
 ### Session index for Harness Console
 

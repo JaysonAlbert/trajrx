@@ -1,130 +1,138 @@
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
-import type { Attribution, CheckerResult, TrajectoryIR } from "../types/index.js";
-
-export interface EvalContextInput {
-  runDir: string;
-  traj: TrajectoryIR;
-  checker: CheckerResult;
-  attr: Attribution;
-  flatMdPath: string;
-  sourceTranscriptPath?: string;
+export interface SupplementRequest {
+  status: "needs_more_evidence";
+  step_ids: number[];
+  reason: string;
 }
 
-function readOptional(path: string): string | null {
-  if (!existsSync(path)) return null;
-  return readFileSync(path, "utf-8");
+const OUTPUT_CONTRACT = [
+  "# Agent Evaluation — <short session id>",
+  "",
+  "## 任务与结果",
+  "- 任务：<1-2 sentences>",
+  "- 交付结果：完成 | 部分完成 | 未完成 | 无法判断",
+  "",
+  "## 效率",
+  "- 等级：高 | 中 | 低",
+  "- 主因：context | tool | mcp | skill | none | compound",
+  "- 证据：<cite #SN/#UN and bounded metrics>",
+  "",
+  "Efficiency rubric:",
+  "- 高：没有实质性可避免浪费，或浪费很小。",
+  "- 中：存在局部可避免浪费，但没有主导整个执行。",
+  "- 低：可避免的工具/上下文浪费明显主导执行，重复失败，或阻碍交付。",
+  "- 任务未完成本身不等于低效率；必须判断执行成本和可避免浪费。",
+  "",
+  "## 与静态结论对照",
+  "- 明确说明是否同意 static primary_cause；分歧时解释证据。",
+  "",
+  "## 改进建议",
+  "1. <only actionable, evidence-backed changes>",
+  "",
+  "## artifact 索引",
+  "- <slice paths used>",
+].join("\n");
+
+function stripFence(text: string): string {
+  const trimmed = text.trim();
+  const match = trimmed.match(/^```(?:json)?\s*\n([\s\S]*?)\n```$/);
+  return match ? match[1]!.trim() : trimmed;
 }
 
-function readJsonOptional(path: string): unknown | null {
-  const raw = readOptional(path);
-  if (!raw) return null;
+export function parseSupplementRequest(text: string): SupplementRequest | null {
+  let value: unknown;
   try {
-    return JSON.parse(raw);
+    value = JSON.parse(stripFence(text));
   } catch {
     return null;
   }
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const candidate = value as Record<string, unknown>;
+  if (candidate.status !== "needs_more_evidence") return null;
+  if (!Array.isArray(candidate.step_ids) || typeof candidate.reason !== "string") return null;
+  const stepIds = candidate.step_ids.filter(
+    (step): step is number => typeof step === "number" && Number.isInteger(step) && step > 0
+  );
+  if (stepIds.length === 0) return null;
+  return {
+    status: "needs_more_evidence",
+    step_ids: stepIds,
+    reason: candidate.reason.trim(),
+  };
 }
 
-export function writeEvalContext(input: EvalContextInput): string {
-  const { runDir, traj, checker, attr, flatMdPath, sourceTranscriptPath } = input;
-  const analysisReport = readOptional(join(runDir, "analysis-report.md"));
-  const toolEfficiency = readJsonOptional(join(runDir, "tool_efficiency.json"));
-  const reconciliation = readJsonOptional(join(runDir, "reconciliation.json"));
-  const manualAttr = readJsonOptional(join(runDir, "reconcile", "manual_attribution.json"));
-
-  const lines = [
-    "# TrajRx Agent Evaluation Context",
+export function buildInitialEvalPrompt(evalSlicePath: string): string {
+  return [
+    "Run a TrajRx agent-evaluation job using bounded evidence.",
     "",
-    "You are the **LLM evaluation path** for TrajRx (IDE agent trajectory analysis and efficiency attribution).",
-    "A deterministic rule pipeline has already run. Your job is to read the artifacts, judge efficiency,",
-    "compare with static attribution, and explain divergences.",
+    `Read ${evalSlicePath} completely.`,
+    "Do not read the full transcript or any other artifact in this pass.",
     "",
-    "## Session",
-    `- trajectory_id: ${traj.trajectory_id}`,
-    `- instruction: ${traj.instruction || "(unknown)"}`,
-    `- user_turns: ${traj.metadata.user_turns ?? "?"}`,
-    `- assistant_steps: ${traj.steps.length}`,
-    sourceTranscriptPath ? `- source_transcript: ${sourceTranscriptPath}` : "",
-    "",
-    "## Artifacts to read (use your Read tool)",
-    `- flat transcript: ${flatMdPath}`,
-    `- analysis report: ${join(runDir, "analysis-report.md")}`,
-    `- tool efficiency: ${join(runDir, "tool_efficiency.json")}`,
-    `- static attribution: ${join(runDir, "judge_output", "attribution.json")}`,
-    `- violations: ${join(runDir, "checker_results", "violations.json")}`,
-    `- reconciliation: ${join(runDir, "reconcile", "reconciliation.json")}`,
-    "",
-    "## Static pipeline summary (embedded)",
-    "",
-    "### Attribution (rules)",
-    "```json",
-    JSON.stringify(attr, null, 2),
-    "```",
-    "",
-    "### Top violations",
-    "```json",
-    JSON.stringify((checker.violations ?? []).slice(0, 12), null, 2),
-    "```",
-    "",
-    "### Tool efficiency (summary)",
-    "```json",
-    JSON.stringify(toolEfficiency, null, 2),
-    "```",
-    "",
-    reconciliation
-      ? `### Reconciliation\n\`\`\`json\n${JSON.stringify(reconciliation, null, 2)}\n\`\`\`\n`
-      : "",
-    manualAttr
-      ? `### Manual heuristic attribution\n\`\`\`json\n${JSON.stringify(manualAttr, null, 2)}\n\`\`\`\n`
-      : "",
-    analysisReport
-      ? `### Analysis report (embedded)\n\n${analysisReport}\n`
-      : "",
-    "## Output contract",
-    "",
-    "Respond with **only** a Markdown document (no preamble) using this structure:",
+    "If the slice is sufficient, output ONLY the final Markdown document using this contract:",
     "",
     "```markdown",
-    "# Agent Evaluation — <short session id>",
-    "",
-    "## 任务",
-    "(1-3 sentences: what the user asked, delivery outcome if inferable)",
-    "",
-    "## 工具效率",
-    "(table: wall time, output tokens, slowest calls, call patterns)",
-    "",
-    "## 静态工具结论 (TrajRx)",
-    "(table: primary_cause, confidence, violations count, reconcile verdict)",
-    "",
-    "## Agent 评估",
-    "### 效率判断：**高/中/低**",
-    "**主因（Agent）：** context | tool | mcp | skill | none | compound",
-    "- bullet evidence tied to step ids (#SN / #UN) when possible",
-    "- explicitly compare with static primary_cause; if divergent, explain why",
-    "",
-    "**建议：** (actionable improvements for rules/skills/MCP/tooling)",
-    "",
-    "## artifact 索引",
-    "- list key artifact paths",
+    OUTPUT_CONTRACT,
     "```",
     "",
-    "Categories must be: context, tool, mcp, skill, none, or compound.",
-    "Write in Chinese. Be concise but evidence-based.",
-  ].filter((l) => l !== "");
-
-  const outPath = join(runDir, "eval_context.md");
-  writeFileSync(outPath, lines.join("\n"), "utf-8");
-  return outPath;
+    "If and only if a material conclusion cannot be judged from the slice, output ONLY one JSON object:",
+    '{"status":"needs_more_evidence","step_ids":[1,2],"reason":"specific missing evidence"}',
+    "",
+    "Request only concrete Assistant step IDs listed as omitted in the coverage manifest.",
+    "At most six steps may be requested. Do not output Markdown together with the JSON.",
+    "Write the final evaluation in Chinese and stay concise.",
+  ].join("\n");
 }
 
-export function buildAgentEvalPrompt(evalContextPath: string, flatMdPath: string): string {
+export function buildSupplementEvalPrompt(
+  evalSlicePath: string,
+  supplementPath: string,
+  requestReason: string
+): string {
   return [
-    "Run a TrajRx agent-evaluation job.",
+    "Complete the TrajRx agent-evaluation using the bounded evidence files.",
     "",
-    `1. Read ${evalContextPath} completely.`,
-    `2. Read the flat transcript at ${flatMdPath} (skim structure; deep-read hotspots cited in static violations).`,
-    "3. Produce the agent-evaluation markdown per the Output contract in eval_context.",
-    "4. Output ONLY the markdown document. No JSON wrapper, no commentary before/after.",
+    `Read ${evalSlicePath} completely.`,
+    `Read ${supplementPath} completely.`,
+    `The first pass requested more evidence because: ${requestReason || "(reason not provided)"}`,
+    "",
+    "No third pass is allowed. You MUST now output ONLY the final Markdown document.",
+    "If evidence is still insufficient, set `交付结果：无法判断` and explain the missing evidence.",
+    "Do not read the full transcript or other artifacts.",
+    "",
+    "Use this exact contract:",
+    "",
+    "```markdown",
+    OUTPUT_CONTRACT,
+    "```",
+    "",
+    "Write in Chinese and stay concise.",
+  ].join("\n");
+}
+
+export function buildUnableToJudgeEvaluation(
+  reason: string,
+  evalSlicePath: string,
+  supplementPath: string
+): string {
+  return [
+    "# Agent Evaluation — evidence-insufficient",
+    "",
+    "## 任务与结果",
+    "- 任务：基于 bounded evidence 评估该轨迹。",
+    "- 交付结果：无法判断",
+    "",
+    "## 效率",
+    "- 等级：无法判断",
+    "- 主因：none",
+    `- 证据：第二轮仍请求更多证据，原因：${reason || "未说明"}。`,
+    "",
+    "## 与静态结论对照",
+    "- bounded evidence 不足，无法可靠确认或否定静态结论。",
+    "",
+    "## 改进建议",
+    "1. 检查 slice 选择规则是否遗漏了决定性步骤。",
+    "",
+    "## artifact 索引",
+    `- ${evalSlicePath}`,
+    `- ${supplementPath}`,
   ].join("\n");
 }

@@ -46,7 +46,8 @@
                              ▼ (optional --agent-eval)
 ┌─────────────────────────────────────────────────────────────────┐
 │ Stage 6  src/eval/runAgentEval.ts + src/agentCli/               │
-│  eval_context.md → agent CLI (-p) → agent-evaluation.md         │
+│  bounded eval_slice.md → agent CLI → optional one supplement    │
+│  → agent-evaluation.md                                          │
 │  profiles: cursor-agent | claude | codex                        │
 └─────────────────────────────────────────────────────────────────┘
 ```
@@ -177,3 +178,18 @@ Codex 在 IR 阶段通过 `buildCodexSessionWallMetrics()` 写入；Cursor 通�
 - [ ] Dynamic invariants（LLM 逐步生成）
 - [ ] Cursor hooks OTel 接入
 - [ ] npm package / VS Code 扩展
+
+## Agent Evaluation 两级证据机制
+
+`--agent-eval` 不再要求 Agent 自己遍历完整 flat transcript。TrajRx 先用固定规则生成
+`eval_slice.md`：
+
+- 保留任务、全部用户轮次和最终 Assistant Step。
+- 选择 `critical_step`、high-severity violation、最大输出和最慢调用对应的步骤。
+- 每段和整份 slice 都有显式字符上限；截断和遗漏写入 coverage manifest。
+- 静态指标只嵌入 compact summary，原始 artifact 路径保留在索引中。
+
+Agent 第一轮只能基于 slice 给出最终评估，或返回
+`{"status":"needs_more_evidence","step_ids":[...],"reason":"..."}`。TrajRx 最多接受一次补读，
+把有效 step 原文写入 `eval_slice_supplement.md` 后执行第二轮。第二轮不能继续申请补读；
+证据仍不足时必须在最终 Markdown 中把交付结果写为“无法判断”。
