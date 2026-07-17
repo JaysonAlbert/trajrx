@@ -58,6 +58,10 @@ interface ToolHotspot {
   step?: unknown;
 }
 
+interface CommandBreakdownCall {
+  tool?: unknown;
+}
+
 const BOUNDS: EvalSliceBounds = {
   maxSliceChars: 120_000,
   maxTaskChars: 8_000,
@@ -182,6 +186,113 @@ function compactToolEfficiency(value: Record<string, unknown> | null): Record<st
   };
 }
 
+function asRecord(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : null;
+}
+
+function asFiniteNumber(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+function numericRecord(value: unknown): Record<string, number> {
+  const record = asRecord(value);
+  if (!record) return {};
+  return Object.fromEntries(
+    Object.entries(record)
+      .filter((entry): entry is [string, number] => asFiniteNumber(entry[1]) !== null)
+      .sort(([left], [right]) => left.localeCompare(right))
+  );
+}
+
+function observedToolCounts(commandBreakdown: Record<string, unknown> | null): Record<string, number> {
+  const calls = Array.isArray(commandBreakdown?.calls)
+    ? commandBreakdown.calls as CommandBreakdownCall[]
+    : [];
+  const counts: Record<string, number> = {};
+  for (const call of calls) {
+    if (typeof call.tool !== "string" || !call.tool) continue;
+    counts[call.tool] = (counts[call.tool] ?? 0) + 1;
+  }
+  return Object.fromEntries(
+    Object.entries(counts).sort(([left], [right]) => left.localeCompare(right))
+  );
+}
+
+function compactTelemetrySummary(value: Record<string, unknown>): Record<string, unknown> {
+  return {
+    step_count: value.step_count ?? null,
+    user_turns: value.user_turns ?? null,
+    session_wall_ms: value.session_wall_ms ?? null,
+    session_active_wall_ms: value.session_active_wall_ms ?? null,
+    user_idle_ms: value.user_idle_ms ?? null,
+    total_tool_calls: value.total_tool_calls ?? null,
+    total_mcp_calls: value.total_mcp_calls ?? null,
+    total_tool_duration_ms: value.total_tool_duration_ms ?? null,
+    total_output_tokens: value.total_output_tokens ?? null,
+    high_output_calls: value.high_output_calls ?? null,
+    tool_breakdown: numericRecord(value.tool_breakdown),
+    mcp_breakdown: numericRecord(value.mcp_breakdown),
+  };
+}
+
+function buildTelemetryReliability(
+  telemetry: Record<string, unknown>,
+  commandBreakdown: Record<string, unknown> | null
+): Record<string, unknown> {
+  const commandCounts = observedToolCounts(commandBreakdown);
+  const fallbackCounts = numericRecord(telemetry.tool_breakdown);
+  const byTool = Object.keys(commandCounts).length > 0 ? commandCounts : fallbackCounts;
+  const commandCallCount = asFiniteNumber(commandBreakdown?.call_count);
+  const observedCallCount = commandCallCount
+    ?? asFiniteNumber(telemetry.total_tool_calls)
+    ?? (Object.keys(byTool).length > 0
+      ? Object.values(byTool).reduce((total, count) => total + count, 0)
+      : null);
+  const observedByCategory = {
+    shell: byTool.Shell ?? byTool.exec_command ?? 0,
+    read: byTool.Read ?? 0,
+    grep: byTool.Grep ?? 0,
+    mcp: Object.entries(byTool)
+      .filter(([tool]) => /mcp/i.test(tool))
+      .reduce((total, [, count]) => total + count, 0),
+  };
+  const heuristicFeatureCounters = {
+    shell: asFiniteNumber(telemetry.total_shell_calls),
+    read: asFiniteNumber(telemetry.total_read_calls),
+    grep: asFiniteNumber(telemetry.total_grep_calls),
+    mcp: asFiniteNumber(telemetry.total_mcp_calls),
+  };
+  const contradictions = Object.entries(heuristicFeatureCounters).flatMap(([metric, counter]) => {
+    if (counter === null) return [];
+    const observedCalls = observedByCategory[metric as keyof typeof observedByCategory];
+    if (counter === observedCalls) return [];
+    return [{
+      metric,
+      observed_calls: observedCalls,
+      heuristic_counter: counter,
+      status: "conflict",
+    }];
+  });
+
+  return {
+    policy: "observed_breakdown_over_heuristic_feature_counters",
+    literal_observed_calls: {
+      source: Object.keys(commandCounts).length > 0
+        ? "command_breakdown.json"
+        : "checker.telemetry_summary.tool_breakdown",
+      call_count: observedCallCount,
+      by_tool: byTool,
+      by_category: observedByCategory,
+    },
+    heuristic_feature_counters: heuristicFeatureCounters,
+    contradictions,
+    guidance:
+      "Use literal_observed_calls for call counts. Heuristic feature counters are diagnostic signals, not literal invocations.",
+  };
+}
+
 function renderSection(section: FlatSection, maxChars: number): { text: string; truncated: boolean } {
   const bounded = truncateMiddle(section.body, maxChars);
   return {
@@ -248,6 +359,10 @@ export function writeEvalSlice(input: EvalSliceInput): EvalSliceRecord {
     toolEfficiencyRaw && typeof toolEfficiencyRaw === "object" && !Array.isArray(toolEfficiencyRaw)
       ? toolEfficiencyRaw as Record<string, unknown>
       : null;
+  const commandBreakdown = asRecord(
+    readJsonOptional(join(input.runDir, "command_breakdown.json"))
+  );
+  const telemetry = input.checker.telemetry_summary ?? {};
   const hotspotSteps = selectHotspotSteps(input, toolEfficiency, existingSteps);
   const selectedStepIds = [...hotspotSteps];
   addStep(selectedStepIds, finalStepId, existingSteps);
@@ -287,8 +402,9 @@ export function writeEvalSlice(input: EvalSliceInput): EvalSliceRecord {
         violations: {
           count: input.checker.violation_count,
           high_priority: highPriorityViolations(input.checker.violations ?? []).slice(0, 12),
-          telemetry_summary: input.checker.telemetry_summary,
+          telemetry_summary: compactTelemetrySummary(telemetry),
         },
+        telemetry_reliability: buildTelemetryReliability(telemetry, commandBreakdown),
         tool_efficiency: compactToolEfficiency(toolEfficiency),
         reconciliation: readJsonOptional(join(input.runDir, "reconcile", "reconciliation.json")),
       },
@@ -305,6 +421,7 @@ export function writeEvalSlice(input: EvalSliceInput): EvalSliceRecord {
     trajectory_ir: join(input.runDir, "trajectory_ir.json"),
     violations: join(input.runDir, "checker_results", "violations.json"),
     attribution: join(input.runDir, "judge_output", "attribution.json"),
+    command_breakdown: join(input.runDir, "command_breakdown.json"),
     tool_efficiency: join(input.runDir, "tool_efficiency.json"),
     reconciliation: join(input.runDir, "reconcile", "reconciliation.json"),
   };

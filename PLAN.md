@@ -188,6 +188,8 @@ Codex 在 IR 阶段通过 `buildCodexSessionWallMetrics()` 写入；Cursor 通�
 - 选择 `critical_step`、high-severity violation、最大输出和最慢调用对应的步骤。
 - 每段和整份 slice 都有显式字符上限；截断和遗漏写入 coverage manifest。
 - 静态指标只嵌入 compact summary，原始 artifact 路径保留在索引中。
+- compact summary 明确区分 `command_breakdown` 的 observed calls 与启发式 feature
+  counters；两者冲突时 Agent 必须使用 observed breakdown，并披露遥测限制。
 
 Agent 第一轮只能基于 slice 给出最终评估，或返回
 `{"status":"needs_more_evidence","step_ids":[...],"reason":"..."}`。TrajRx 最多接受一次补读，

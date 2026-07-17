@@ -100,6 +100,10 @@ When `--agent-eval` is set:
 The slice always prioritizes the task, every user turn, the final Assistant Step,
 the attribution `critical_step`, high-severity violations, and the top slow/output
 tool steps. Section and total-size caps are recorded in the slice coverage manifest.
+The compact static summary labels `command_breakdown` call counts as observed evidence
+and shell/read/grep aggregate counters as heuristic features. Deterministic conflict
+markers require the Agent to report telemetry limitations instead of quoting inflated
+feature counters as literal calls.
 If the second pass is still insufficient, the Agent must emit a final Markdown
 evaluation with delivery outcome `无法判断`.
 

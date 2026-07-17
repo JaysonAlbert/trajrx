@@ -24,12 +24,22 @@ const OUTPUT_CONTRACT = [
   "",
   "## 与静态结论对照",
   "- 明确说明是否同意 static primary_cause；分歧时解释证据。",
+  "- 必须说明 telemetry 是否存在 conflict，以及采用哪一组计数。",
   "",
   "## 改进建议",
   "1. <only actionable, evidence-backed changes>",
   "",
   "## artifact 索引",
   "- <slice paths used>",
+].join("\n");
+
+const TELEMETRY_GUARDRAILS = [
+  "Telemetry evidence rules (mandatory):",
+  "- `literal_observed_calls` is the authority for actual invocation counts.",
+  "- Never report `heuristic_feature_counters` as literal tool-call counts.",
+  "- If `telemetry_reliability.contradictions` is non-empty, resolve every telemetry conflict explicitly in `与静态结论对照`.",
+  "- Heuristic counters may support anomaly detection, but they must not determine the efficiency grade.",
+  "- Do not collapse a material secondary cause merely because static `primary_cause` names one category; use `compound` when the observed evidence supports it.",
 ].join("\n");
 
 function stripFence(text: string): string {
@@ -67,6 +77,8 @@ export function buildInitialEvalPrompt(evalSlicePath: string): string {
     `Read ${evalSlicePath} completely.`,
     "Do not read the full transcript or any other artifact in this pass.",
     "",
+    TELEMETRY_GUARDRAILS,
+    "",
     "If the slice is sufficient, output ONLY the final Markdown document using this contract:",
     "",
     "```markdown",
@@ -97,6 +109,8 @@ export function buildSupplementEvalPrompt(
     "No third pass is allowed. You MUST now output ONLY the final Markdown document.",
     "If evidence is still insufficient, set `交付结果：无法判断` and explain the missing evidence.",
     "Do not read the full transcript or other artifacts.",
+    "",
+    TELEMETRY_GUARDRAILS,
     "",
     "Use this exact contract:",
     "",

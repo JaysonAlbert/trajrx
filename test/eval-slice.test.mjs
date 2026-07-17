@@ -34,7 +34,13 @@ function makeRunDir() {
   writeJson(join(runDir, "checker_results", "violations.json"), [{
     trajectory_id: trajectoryId,
     violation_count: 1,
-    telemetry_summary: { total_tool_calls: 12 },
+    telemetry_summary: {
+      total_tool_calls: 3,
+      total_shell_calls: 715,
+      total_read_calls: 372,
+      total_grep_calls: 66,
+      tool_breakdown: { Shell: 1, Read: 1, Grep: 1 },
+    },
     violations: [{
       invariant_id: "INV-TOOL-005",
       category: "tool",
@@ -61,6 +67,17 @@ function makeRunDir() {
     by_tool: { exec_command: { count: 12, total_duration_ms: 1200, total_output_tokens: 12345 } },
     largest_outputs: [{ step: 4, tool: "exec_command", output_tokens: 8000, duration_ms: 10 }],
     slowest: [{ step: 5, tool: "exec_command", output_tokens: 10, duration_ms: 900 }],
+  });
+  writeJson(join(runDir, "command_breakdown.json"), {
+    trajectory_id: trajectoryId,
+    call_count: 3,
+    calls: [
+      { step: 1, tool: "Shell", command: "git status" },
+      { step: 2, tool: "Read", command: "README.md" },
+      { step: 3, tool: "Grep", command: "pattern=test" },
+    ],
+    aggregates: [],
+    optimization_candidates: [],
   });
   writeJson(join(runDir, "reconcile", "reconciliation.json"), [{
     verdict: "consistent",
@@ -155,6 +172,13 @@ test("writeEvalSlice deterministically includes mandatory sections and rule-sele
   assert.match(firstBody, /Largest output step/);
   assert.doesNotMatch(firstBody, /Unselected exploration/);
   assert.doesNotMatch(firstBody, /assistant_steps: 5/);
+  assert.match(firstBody, /"telemetry_reliability"/);
+  assert.match(firstBody, /"policy": "observed_breakdown_over_heuristic_feature_counters"/);
+  assert.match(firstBody, /"call_count": 3/);
+  assert.match(firstBody, /"heuristic_feature_counters"/);
+  assert.match(firstBody, /"heuristic_counter": 715/);
+  assert.match(firstBody, /"status": "conflict"/);
+  assert.match(firstBody, /"command_breakdown":/);
   assert.deepEqual(first.selectedStepIds, [2, 3, 4, 5]);
   assert.ok(first.sizeChars <= first.bounds.maxSliceChars);
 });
@@ -244,6 +268,11 @@ test("runAgentEval performs at most one bounded supplemental pass", async () => 
   assert.ok(record.eval_slice_path.endsWith("eval_slice.md"));
   assert.ok(record.eval_slice_supplement_path.endsWith("eval_slice_supplement.md"));
   assert.match(readFileSync(record.eval_slice_supplement_path, "utf-8"), /Unselected exploration/);
+  assert.match(
+    invocations[0].prompt,
+    /Never report `heuristic_feature_counters` as literal tool-call counts/
+  );
+  assert.match(invocations[0].prompt, /resolve every telemetry conflict/);
   assert.match(invocations[1].prompt, /No third pass is allowed/);
   assert.match(readFileSync(record.output_path, "utf-8"), /交付结果：无法判断/);
   assert.ok(existsSync(join(runDir, "judge_output", "agent_eval_pass1.raw.txt")));
