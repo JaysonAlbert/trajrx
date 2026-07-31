@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { existsSync, readdirSync, statSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
 import type { AgentCliId } from "./agentCli/types.js";
 import { isAgentEvalEnabled, type TranscriptSource } from "./config.js";
@@ -9,7 +9,11 @@ import { buildSessionIndex, defaultSessionIndexPath, formatSessionIndex, writeSe
 import { formatSessionMatches, resolveSessionByTitle, searchSessionsByTitle } from "./session/search.js";
 import { getRunsDir } from "./config.js";
 
+const VERSION = (JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8")) as { version: string })
+  .version;
+
 const USAGE = `Usage:
+  trajrx -v | --version
   trajrx <transcript.jsonl> [--run-name NAME] [--agent-eval]
   trajrx --source codex|cursor --title "会话标题" [--exact] [--run-name NAME] [--agent-eval]
   trajrx --source codex|cursor --title "会话标题" [--exact] --list-sessions
@@ -207,6 +211,11 @@ async function resolveInputPath(
 
 async function main() {
   const argv = process.argv.slice(2);
+  if (argv.includes("-v") || argv.includes("--version")) {
+    console.log(`trajrx ${VERSION}`);
+    return;
+  }
+
   if (argv[0] === "session") {
     const command = argv[1];
     if (!command || command === "--help" || command === "-h") {
