@@ -25,6 +25,7 @@ npm install -g /path/to/trajrx
 Verify:
 
 ```bash
+trajrx --version
 trajrx --help   # or: trajrx path/to/transcript.jsonl --run-name demo
 ```
 
