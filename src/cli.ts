@@ -37,7 +37,7 @@ Session index:
 
 Session lookup:
   --source              Transcript source when using --title: codex | cursor
-  --title               Match session by title (Codex: state_*.sqlite threads; Cursor: first user message)
+  --title               Match session by title (Codex: current UI name/state DB; Cursor: first user message)
   --exact               Require exact title match (no substring); use with --title
   --list-sessions       Print matching sessions and exit (requires --source --title)
   --cursor-project      Limit Cursor search to one project slug under ~/.cursor/projects/

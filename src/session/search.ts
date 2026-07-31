@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { createReadStream, existsSync, readdirSync, statSync } from "node:fs";
+import { createReadStream, existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { createRequire } from "node:module";
 import { basename, join } from "node:path";
 import { createInterface } from "node:readline";
@@ -93,6 +93,32 @@ function codexUpdatedAtIso(updatedAtMs?: number): string | undefined {
   return new Date(updatedAtMs).toISOString();
 }
 
+/** Latest Codex UI thread name per id from ~/.codex/session_index.jsonl. */
+function loadCodexThreadNamesFromSessionIndex(codexHome: string): Map<string, string> {
+  const indexPath = join(codexHome, "session_index.jsonl");
+  const names = new Map<string, string>();
+  if (!existsSync(indexPath)) return names;
+
+  const latestAt = new Map<string, number>();
+  for (const line of readFileSync(indexPath, "utf-8").split("\n")) {
+    const ln = line.trim();
+    if (!ln) continue;
+    try {
+      const row = JSON.parse(ln) as { id?: string; thread_name?: string; updated_at?: string };
+      if (!row.id || typeof row.thread_name !== "string") continue;
+      const at = row.updated_at ? Date.parse(row.updated_at) : 0;
+      const prev = latestAt.get(row.id) ?? -1;
+      if (at >= prev) {
+        latestAt.set(row.id, at);
+        names.set(row.id, row.thread_name);
+      }
+    } catch {
+      continue;
+    }
+  }
+  return names;
+}
+
 function loadCodexThreadsFromStateDb(stateDbPath: string): CodexThreadRow[] {
   try {
     const { DatabaseSync } = require("node:sqlite") as typeof import("node:sqlite");
@@ -133,9 +159,13 @@ function codexTitleMatchScore(
   firstUserMessage: string | undefined,
   query: string,
   exact = false,
+  threadName?: string,
 ): number {
   const scores = [titleMatchScore(title, query, exact)];
-  if (!exact && firstUserMessage && firstUserMessage !== title) {
+  if (threadName && threadName !== title) {
+    scores.push(titleMatchScore(threadName, query, exact));
+  }
+  if (!exact && firstUserMessage && firstUserMessage !== title && firstUserMessage !== threadName) {
     scores.push(titleMatchScore(firstUserMessage, query, exact));
   }
   return Math.max(...scores);
@@ -157,14 +187,15 @@ function codexMatchFromTitleFields(
   codexHome: string,
   row: { id: string; title: string; first_user_message?: string; rollout_path?: string; updated_at?: string },
   exact = false,
+  threadName?: string,
 ): SessionMatch | undefined {
-  const score = codexTitleMatchScore(row.title, row.first_user_message, query, exact);
+  const score = codexTitleMatchScore(row.title, row.first_user_message, query, exact, threadName);
   if (score <= 0) return undefined;
   const transcript_path = resolveCodexTranscriptPath(codexHome, row.id, row.rollout_path);
   if (!transcript_path) return undefined;
   return {
     source: "codex",
-    title: row.title,
+    title: threadName || row.title,
     session_id: row.id,
     transcript_path,
     updated_at: row.updated_at,
@@ -177,6 +208,7 @@ function searchCodexSessions(query: string, codexHome: string, exact = false): S
   const stateDbPath = findCodexStateDb(codexHome);
   if (!stateDbPath) return [];
 
+  const threadNames = loadCodexThreadNamesFromSessionIndex(codexHome);
   const matches: SessionMatch[] = [];
   for (const row of loadCodexThreadsFromStateDb(stateDbPath)) {
     const match = codexMatchFromTitleFields(query, codexHome, {
@@ -185,7 +217,7 @@ function searchCodexSessions(query: string, codexHome: string, exact = false): S
       first_user_message: row.first_user_message,
       rollout_path: row.rollout_path,
       updated_at: codexUpdatedAtIso(row.updated_at_ms),
-    }, exact);
+    }, exact, threadNames.get(row.id));
     if (match) matches.push(match);
   }
 
