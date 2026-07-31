@@ -41,7 +41,7 @@ trajrx transcript.jsonl --flatten-only -o session.flat.md
 # Batch all .jsonl under a directory
 trajrx ~/.cursor/projects --batch
 
-# Resolve by Codex thread title (uses ~/.codex/session_index.jsonl → rollout jsonl)
+# Resolve by the current Codex UI thread name (with state SQLite title fallback)
 trajrx --source codex --title "修复 ZYTGXT-131287" --list-sessions
 trajrx --source codex --title "修复 ZYTGXT-131287" --run-name ZYTGXT-131287 --agent-eval
 
