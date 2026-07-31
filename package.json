@@ -1,11 +1,11 @@
 {
-  "name": "trajrx",
-  "version": "0.2.0",
+  "name": "@gf/trajrx",
+  "version": "0.2.1",
   "description": "TrajRx — IDE agent trajectory analysis and efficiency attribution pipeline",
   "type": "module",
   "main": "./dist/cli.js",
   "bin": {
-    "trajrx": "./dist/cli.js"
+    "trajrx": "dist/cli.js"
   },
   "files": [
     "dist",
@@ -14,13 +14,20 @@
     "LICENSE"
   ],
   "scripts": {
-    "build": "tsc",
+    "build": "tsc && npm run chmod-bin",
+    "chmod-bin": "node -e \"const fs = require('fs'); fs.chmodSync('dist/cli.js', 0o755)\"",
     "prepare": "npm run build",
     "prepublishOnly": "npm run build",
+    "publish:latest": "npm publish --tag latest --registry http://npm.gf.com.cn && npm dist-tag add @gf/trajrx@$npm_package_version latest --registry http://npm.gf.com.cn",
+    "publish:version": "npm publish --tag v$npm_package_version --registry http://npm.gf.com.cn && npm dist-tag add @gf/trajrx@$npm_package_version v$npm_package_version --registry http://npm.gf.com.cn",
     "start": "node dist/cli.js",
     "dev": "tsx src/cli.ts",
     "analyze": "node dist/cli.js",
-    "test:fixture": "node -e \"console.error('Add a local .jsonl under test/fixtures/ (gitignored). See test/fixtures/README.md'); process.exit(1)\""
+    "test": "npm run build && node --test test/*.test.mjs",
+    "test:fixture": "node -e \"console.error('Add a local .jsonl under test/fixtures/ (gitignored). See test/fixtures/README.md'); process.exit(1)\"",
+    "docs:dev": "vitepress dev docs",
+    "docs:build": "vitepress build docs",
+    "docs:preview": "vitepress preview docs"
   },
   "engines": {
     "node": ">=20"
@@ -36,13 +43,23 @@
     "llm"
   ],
   "license": "MIT",
+  "publishConfig": {
+    "registry": "http://npm.gf.com.cn"
+  },
   "devDependencies": {
     "@types/node": "^22.10.0",
     "tsx": "^4.19.0",
-    "typescript": "^5.7.0"
+    "typescript": "^5.7.0",
+    "vitepress": "^1.6.4"
   },
   "repository": {
     "type": "git",
     "url": "."
+  },
+  "dependencies": {
+    "boxen": "^8.0.1",
+    "listr2": "^10.2.1",
+    "picocolors": "^1.1.1",
+    "string-width": "^8.2.1"
   }
 }

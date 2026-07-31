@@ -25,10 +25,6 @@ export function manualAttribution(traj: TrajectoryIR) {
   const causes: Record<string, number> = {};
   const findings: string[] = [];
 
-  if (userTurns >= 20) {
-    causes.context = (causes.context ?? 0) + 3;
-    findings.push(`Scope creep: ${userTurns} user turns with evolving requirements`);
-  }
   if (stepCount / Math.max(userTurns, 1) > 10) {
     causes.context = (causes.context ?? 0) + 2;
     findings.push(`Context bloat: ${stepCount} assistant steps / ${userTurns} user turns`);
@@ -39,7 +35,7 @@ export function manualAttribution(traj: TrajectoryIR) {
   }
   if (harnessRuns >= 6) {
     causes.tool = (causes.tool ?? 0) + 4;
-    findings.push(`Harness trial-and-error: ${harnessRuns} test runs without converging`);
+    findings.push(`Repeated Harness testing: ${harnessRuns} observed test runs; inspect failure progression`);
   }
   if (totalShells > 80) {
     causes.tool = (causes.tool ?? 0) + 2;

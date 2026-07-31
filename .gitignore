@@ -1,7 +1,7 @@
 __pycache__/
 *.py[cod]
 .venv/
-runs/
+/runs/
 reports/
 test/fixtures/*.jsonl
 .env
@@ -16,3 +16,5 @@ dist/
 *.tsbuildinfo
 test/fixtures/
 reports/
+docs/.vitepress/cache/
+docs/.vitepress/dist/

@@ -1,7 +1,9 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { CheckerResult, TrajectoryIR, Violation } from "../types/index.js";
+import { countToolInputStats } from "../enrich/toolInputMetrics.js";
 import { PRESET_INVARIANTS, exportStaticInvariants } from "./presets.js";
+import { resolveSessionActiveWallMs, resolveSessionWallMs, resolveUserIdleMs } from "../ir/sessionMetrics.js";
 
 function aggregateTelemetry(traj: TrajectoryIR, steps: TrajectoryIR["steps"]) {
   const tool_names: Record<string, number> = {};
@@ -13,9 +15,30 @@ function aggregateTelemetry(traj: TrajectoryIR, steps: TrajectoryIR["steps"]) {
   const totalToolDuration = steps.reduce((n, s) => n + (s.telemetry.tool_duration_ms ?? 0), 0);
   const totalOutputTokens = steps.reduce((n, s) => n + (s.telemetry.tool_output_tokens ?? 0), 0);
   const totalTools = steps.reduce((n, s) => n + s.telemetry.tool_count, 0);
+  let maxInputParamCount = 0;
+  let totalInputParamCount = 0;
+  let highInputParamCalls = 0;
+  let highOutputCalls = 0;
+  for (const s of steps) {
+    for (const sub of s.substeps) {
+      if (!sub.tool_name) continue;
+      const stats = countToolInputStats(sub.tool_name, sub.tool_input ?? {});
+      totalInputParamCount += stats.param_count;
+      maxInputParamCount = Math.max(maxInputParamCount, stats.param_count);
+      if (stats.param_count >= 8) highInputParamCalls++;
+      const tokens = sub.execution?.output_tokens ?? 0;
+      if (tokens >= 10_000) highOutputCalls++;
+    }
+  }
+  const sessionWallMs = resolveSessionWallMs(traj);
+  const userIdleMs = resolveUserIdleMs(traj);
+  const sessionActiveWallMs = resolveSessionActiveWallMs(traj);
   return {
     step_count: steps.length,
     user_turns: traj.metadata.user_turns ?? 0,
+    session_wall_ms: sessionWallMs,
+    session_active_wall_ms: sessionActiveWallMs,
+    user_idle_ms: userIdleMs,
     total_tool_calls: totalTools,
     total_mcp_calls: steps.reduce((n, s) => n + s.telemetry.mcp_count, 0),
     total_shell_calls: steps.reduce((n, s) => n + s.telemetry.shell_count, 0),
@@ -23,6 +46,10 @@ function aggregateTelemetry(traj: TrajectoryIR, steps: TrajectoryIR["steps"]) {
     total_grep_calls: steps.reduce((n, s) => n + s.telemetry.grep_count, 0),
     total_tool_duration_ms: totalToolDuration,
     total_output_tokens: totalOutputTokens,
+    max_input_param_count: maxInputParamCount,
+    avg_input_param_count: totalTools ? Math.round((totalInputParamCount / totalTools) * 10) / 10 : 0,
+    high_input_param_calls: highInputParamCalls,
+    high_output_calls: highOutputCalls,
     avg_tool_duration_ms: totalTools ? Math.round(totalToolDuration / totalTools) : 0,
     avg_output_tokens_per_tool: totalTools ? Math.round(totalOutputTokens / totalTools) : 0,
     tool_breakdown: Object.fromEntries(Object.entries(tool_names).sort((a, b) => b[1] - a[1])),

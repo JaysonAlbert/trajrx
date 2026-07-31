@@ -251,6 +251,7 @@ export function enrichCodexSession(session: ParsedCodexSession): {
 
   const thinking_gaps_ms: CodexSessionToolStats["thinking_gaps_ms"] = [];
   for (let i = 1; i < steps.length; i++) {
+    if (steps[i]!.user_turn !== steps[i - 1]!.user_turn) continue;
     const prev = new Date(steps[i - 1]!.timestamp).getTime();
     const cur = new Date(steps[i]!.timestamp).getTime();
     const gap = cur - prev;
