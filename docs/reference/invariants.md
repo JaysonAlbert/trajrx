@@ -8,7 +8,7 @@ Violations are aggregated by `src/judge/attributor.ts` into session-level attrib
 
 | Category | Focus |
 |----------|-------|
-| `context` | Session-level patterns — read volume, step ratio, scope creep |
+| `context` | Session-level patterns — read volume, step ratio, same-turn stalls |
 | `tool` | Tool usage — repeated grep/shell, slow calls, output bloat |
 | `mcp` | MCP tool overuse and thrashing |
 | `skill` | Agent skill discovery vs. harness usage |
@@ -20,7 +20,10 @@ Violations are aggregated by `src/judge/attributor.ts` into session-level attrib
 | `INV-CTX-001` | Too many tools per step | > 8 tool calls in one step |
 | `INV-CTX-002` | Excessive Read ops | > 40 Read operations per session |
 | `INV-CTX-003` | High assistant/user ratio | > 12 steps per user turn |
-| `INV-CTX-004` | Scope creep low delivery | ≥ 20 user turns but < 15 write/edit ops |
+
+User-turn count and observed mutation-tool count are not sufficient evidence of
+scope creep. Scope changes requested by the user are left to the bounded Agent
+evaluation, which can read turn semantics.
 
 ## Tool invariants
 
@@ -28,7 +31,7 @@ Violations are aggregated by `src/judge/attributor.ts` into session-level attrib
 |----|-------------|
 | `INV-TOOL-001` | Repeated Grep — same pattern ≥ 3 times |
 | `INV-TOOL-002` | Repeated Shell — same command ≥ 3 times |
-| `INV-TOOL-003` | Harness retry loop |
+| `INV-TOOL-003` | Repeated Harness test execution signal |
 | `INV-TOOL-004` | Slow single tool execution |
 | `INV-TOOL-005` | Bloated tool output |
 | `INV-TOOL-006` | Excessive total tool wall time |
@@ -57,7 +60,7 @@ Applied when transcript format is `codex_rollout`:
 | ID | Category | Description |
 |----|----------|-------------|
 | `INV-CODEX-001` | tool | Background exec polling (`write_stdin` loops) |
-| `INV-CODEX-002` | context | Long thinking gap between steps |
+| `INV-CODEX-002` | context | Aggregated medium signal for long gaps between steps in the same user turn |
 | `INV-CODEX-003` | context | Discovery before bootstrap |
 
 ## Violation shape
@@ -75,6 +78,8 @@ interface Violation {
 
 ## Severity weighting
 
-The attributor weights violations by severity when computing `primary_cause` and `critical_step`. High-severity context violations (e.g. excessive reads, scope creep) typically dominate session-level attribution.
+The attributor weights violations by severity when computing `primary_cause` and
+`critical_step`. Static violations use observed tool calls; semantic claims such as
+scope creep are not inferred from counts alone.
 
 See `checker_results/static_invariants.json` in any run directory for the exact definitions used in that analysis.

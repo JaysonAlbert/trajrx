@@ -40,6 +40,9 @@ const TELEMETRY_GUARDRAILS = [
   "- If `telemetry_reliability.contradictions` is non-empty, resolve every telemetry conflict explicitly in `与静态结论对照`.",
   "- Heuristic counters may support anomaly detection, but they must not determine the efficiency grade.",
   "- Do not collapse a material secondary cause merely because static `primary_cause` names one category; use `compound` when the observed evidence supports it.",
+  "- User idle is calendar chronology and must not affect the efficiency grade or be described as Agent waiting/correction cost.",
+  "- Work explicitly requested by the user is not Agent scope creep; only cite unrequested expansion with turn evidence.",
+  "- Do not recommend a CLI flag or capability unless the bounded evidence shows that it exists; otherwise recommend verifying available targeting options.",
 ].join("\n");
 
 function stripFence(text: string): string {

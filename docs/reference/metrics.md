@@ -16,6 +16,11 @@ Two complementary session-level metrics help compare **calendar span** vs **acti
 
 **Active wall time:** `session_active_wall_ms = session_wall_ms - user_idle_ms` (floored at 0).
 
+User idle describes calendar chronology, not Agent inefficiency. It must not affect
+an efficiency grade. Codex "thinking gap" diagnostics compare only consecutive
+Assistant steps inside the same user turn, so overnight or delayed user replies are
+not mislabeled as model/tool waiting.
+
 These fields are written during IR normalization and read via `src/ir/sessionMetrics.ts` (`resolveSessionWallMs`, `resolveUserIdleMs`, `resolveSessionActiveWallMs`) so reports, checker telemetry, and terminal summary stay source-agnostic.
 
 ### Source support
@@ -51,6 +56,11 @@ Tool wall time is **not** the same as session wall time — it excludes thinking
 | 工具输出 tokens | Checker telemetry | Estimated or parsed output token sum |
 | 工具传参（最大/均） | `analysis-report.md` §2 | Per-call input param count (Shell flags/env; JSON keys for structured tools) |
 | 高传参 / 高输出调用 | Checker telemetry | Calls with ≥8 params or ≥10k output tokens |
+
+`total_shell_calls`, `total_read_calls`, and `total_grep_calls` count mutually
+exclusive observed tool categories, matching `tool_breakdown`. Separate command and
+pattern arrays may still record embedded operations (for example `docker logs | rg`)
+for repetition diagnostics without inflating invocation counts.
 
 ## Tool input parameters
 

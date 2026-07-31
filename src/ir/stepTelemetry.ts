@@ -11,13 +11,15 @@ export interface TelemetryExtract {
 
 export type TelemetryExtractor = (sub: Substep) => TelemetryExtract;
 
-const EMPTY: TelemetryExtract = {
-  shell_cmds: [],
-  grep_patterns: [],
-  read_paths: [],
-  skill_reads: [],
-  mcp_servers: [],
-};
+function emptyTelemetryExtract(): TelemetryExtract {
+  return {
+    shell_cmds: [],
+    grep_patterns: [],
+    read_paths: [],
+    skill_reads: [],
+    mcp_servers: [],
+  };
+}
 
 export function buildStepTelemetry(
   substeps: Substep[],
@@ -54,10 +56,10 @@ export function buildStepTelemetry(
   return {
     user_turn: userTurn,
     tool_count: substeps.filter((s) => s.role.startsWith("tool:") || s.role.startsWith("mcp:")).length,
-    mcp_count: mcp_servers.length,
-    shell_count: shell_cmds.length,
-    read_count: read_paths.length,
-    grep_count: grep_patterns.length,
+    mcp_count: substeps.filter((s) => s.role.startsWith("mcp:")).length,
+    shell_count: tool_names.filter((name) => name === "Shell").length,
+    read_count: tool_names.filter((name) => name === "Read").length,
+    grep_count: tool_names.filter((name) => name === "Grep").length,
     assistant_chars: substeps.filter((s) => s.role === "assistant").reduce((n, s) => n + s.content.length, 0),
     tool_duration_ms,
     tool_output_tokens,
@@ -73,7 +75,7 @@ export function buildStepTelemetry(
 export function extractCursorStepFields(sub: Substep): TelemetryExtract {
   const name = sub.tool_name ?? "";
   const inp = sub.tool_input ?? {};
-  const out = { ...EMPTY, mcp_servers: [] as string[] };
+  const out = emptyTelemetryExtract();
 
   if (name === "Shell") {
     const cmd = String(inp.command ?? "");
@@ -100,24 +102,22 @@ export function extractCursorStepFields(sub: Substep): TelemetryExtract {
 export function extractCodexStepFields(sub: Substep): TelemetryExtract {
   const name = sub.tool_name ?? "";
   const inp = sub.tool_input ?? {};
-  const out = { ...EMPTY };
+  const out = emptyTelemetryExtract();
+  const cmd = String(inp.cmd ?? inp.command ?? "");
 
-  if (name === "Shell" || inp._codex_tool === "exec_command") {
-    const cmd = String(inp.cmd ?? inp.command ?? "");
+  if (name === "Shell") {
     const classified = classifyExecCommand(cmd);
     if (classified.shell_cmd) out.shell_cmds.push(classified.shell_cmd);
     if (classified.grep_pattern) out.grep_patterns.push(classified.grep_pattern);
     if (classified.read_path) out.read_paths.push(classified.read_path);
-    if (cmd.includes("SKILL.md") || cmd.includes("/skills/")) out.skill_reads.push(cmd);
-  }
-  if (name === "Grep") {
+  } else if (name === "Grep") {
     const pat = String(inp.pattern ?? "") || extractRgPattern(String(inp.cmd ?? ""));
     if (pat) out.grep_patterns.push(pat);
-  }
-  if (name === "Read") {
+  } else if (name === "Read") {
     const p = String(inp.path ?? "");
     if (p) out.read_paths.push(p);
   }
+  if (cmd.includes("SKILL.md") || cmd.includes("/skills/")) out.skill_reads.push(cmd);
 
   return out;
 }

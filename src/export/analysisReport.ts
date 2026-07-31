@@ -212,22 +212,19 @@ function escCell(s: string): string {
   return s.replace(/\|/g, "\\|").replace(/\n/g, " ");
 }
 
-function sectionFullCommands(title: string, agg: CommandAggregateRow[], lang = "bash"): string {
-  if (!agg.length) return "";
-  const parts: string[] = [`### ${title}`, ""];
-  agg.forEach((a, i) => {
-    parts.push(
-      `#### ${i + 1}. ${formatDuration(a.total_duration_ms)} ×${a.count} — #S${a.steps.slice(0, 6).join(", #S")}${a.steps.length > 6 ? "…" : ""}`,
-      "",
-      `- 均耗时: ${formatDuration(a.avg_duration_ms)} | 传参: ${a.max_param_count} | 输入 chars: ${formatTokenCount(a.total_input_chars)} | 输出 tokens: ~${formatTokenCount(a.total_output_tokens)}`,
-      "",
-      `\`\`\`${lang}`,
-      a.command,
-      "```",
-      ""
-    );
-  });
-  return parts.join("\n");
+export function redactCommandPreview(command: string): string {
+  return command
+    .replace(/([a-z][a-z0-9+.-]*:\/\/[^:\s'"]+):([^@\s'"]+)@/gi, "$1:<redacted>@")
+    .replace(/(\bAuthorization\s*:\s*(?:Bearer\s+)?)[^'"\s]+/gi, "$1<redacted>")
+    .replace(
+      /(\b(?:--?password|--?passwd|--?token|--?secret|appSecret|password)\b\s*(?:=|\s)\s*)(?:"[^"]*"|'[^']*'|[^\s;]+)/gi,
+      "$1<redacted>",
+    )
+    .replace(/\s-p(?!\s)([^\s]+)/g, " -p<redacted>");
+}
+
+function commandPreview(command: string, max: number): string {
+  return truncate(redactCommandPreview(command), max);
 }
 
 function sectionShell(rows: CommandCallRow[]): string {
@@ -239,7 +236,7 @@ function sectionShell(rows: CommandCallRow[]): string {
     "",
     mdTable(
       ["#", "次数", "总耗时", "均耗时", "传参", "输出 tokens", "步骤", "命令摘要"],
-      agg.map((a, i) => [
+      agg.slice(0, 15).map((a, i) => [
         String(i + 1),
         String(a.count),
         formatDuration(a.total_duration_ms),
@@ -247,30 +244,17 @@ function sectionShell(rows: CommandCallRow[]): string {
         String(a.max_param_count),
         `~${formatTokenCount(a.total_output_tokens)}`,
         `#S${a.steps.slice(0, 5).join(", #S")}${a.steps.length > 5 ? "…" : ""}`,
-        escCell(truncate(a.command, 72)),
+        escCell(commandPreview(a.command, 72)),
       ])
     ),
     "",
-    sectionFullCommands("Shell 完整命令文本（按总耗时降序，见上表序号）", agg),
-    "### 逐次调用（Shell，时间序）",
-    "",
-    mdTable(
-      ["步骤", "耗时", "来源", "传参", "输出 tokens", "命令摘要"],
-      shells.map((r) => [
-        `#S${r.step}.${r.sub_index}`,
-        formatDuration(r.duration_ms),
-        r.duration_source,
-        String(r.param_count),
-        `~${formatTokenCount(r.output_tokens)}`,
-        escCell(truncate(r.command, 100)),
-      ])
-    ),
+    "> 默认报告只展示 Top 15 聚合；逐次调用和完整命令见 `command_breakdown.json`。",
     "",
   ];
   return parts.join("\n");
 }
 
-function sectionByTool(tool: string, title: string, rows: CommandCallRow[], lang = "text"): string {
+function sectionByTool(tool: string, title: string, rows: CommandCallRow[]): string {
   const filtered = rows.filter((r) => r.tool === tool);
   if (!filtered.length) return "";
   const agg = aggregateCommands(filtered);
@@ -279,9 +263,9 @@ function sectionByTool(tool: string, title: string, rows: CommandCallRow[], lang
     "",
     mdTable(
       ["#", "具体调用", "次数", "总耗时", "总输出 tokens", "步骤"],
-      agg.map((a, i) => [
+      agg.slice(0, 10).map((a, i) => [
         String(i + 1),
-        escCell(truncate(a.command, 100)),
+        escCell(commandPreview(a.command, 100)),
         String(a.count),
         formatDuration(a.total_duration_ms),
         `~${formatTokenCount(a.total_output_tokens)}`,
@@ -289,18 +273,31 @@ function sectionByTool(tool: string, title: string, rows: CommandCallRow[], lang
       ])
     ),
     "",
-    sectionFullCommands(`${title} — 完整文本`, agg, lang),
-    mdTable(
-      ["步骤", "耗时", "具体调用", "输出 tokens"],
-      filtered.map((r) => [
-        `#S${r.step}.${r.sub_index}`,
-        formatDuration(r.duration_ms),
-        escCell(truncate(r.command, 120)),
-        `~${formatTokenCount(r.output_tokens)}`,
-      ])
-    ),
+    "> 默认报告只展示 Top 10 聚合；逐次调用和完整输入见 `command_breakdown.json`。",
     "",
   ].join("\n");
+}
+
+function sectionOtherTools(tools: string[], rows: CommandCallRow[]): string {
+  const summaries = tools.map((tool) => {
+    const calls = rows.filter((row) => row.tool === tool);
+    const duration = calls.reduce((total, row) => total + (row.duration_ms ?? 0), 0);
+    const outputTokens = calls.reduce((total, row) => total + row.output_tokens, 0);
+    const maxParams = calls.reduce((max, row) => Math.max(max, row.param_count), 0);
+    return { tool, count: calls.length, duration, outputTokens, maxParams };
+  }).sort((left, right) =>
+    right.duration - left.duration || right.outputTokens - left.outputTokens || right.count - left.count
+  );
+  return mdTable(
+    ["工具", "次数", "总耗时", "输出 tokens", "最大传参"],
+    summaries.map((summary) => [
+      summary.tool,
+      String(summary.count),
+      formatDuration(summary.duration),
+      `~${formatTokenCount(summary.outputTokens)}`,
+      String(summary.maxParams),
+    ]),
+  );
 }
 
 export interface AnalysisReportInput {
@@ -370,7 +367,7 @@ export function buildAnalysisReport(input: AnalysisReportInput): string {
   const lines: string[] = [
     `# Session 分析报告 — \`${traj.trajectory_id}\``,
     "",
-    "> 单 session 独立报告：工具耗时、**传参数量**与输出 token **按具体命令/路径/pattern 拆分**，非 Shell/Read 大类汇总。",
+    "> 单 session 紧凑报告：默认展示 bounded Top 表；完整逐次调用保存在 `command_breakdown.json`。",
     "",
     "## 1. 任务摘要",
     "",
@@ -410,7 +407,7 @@ export function buildAnalysisReport(input: AnalysisReportInput): string {
           `~${formatTokenCount(r.output_tokens)}`,
           formatTokenCount(r.input_chars),
           optimizationReasonLabel(r.reason),
-          escCell(truncate(r.command, 90)),
+          escCell(commandPreview(r.command, 90)),
         ])
       ),
       "",
@@ -426,7 +423,7 @@ export function buildAnalysisReport(input: AnalysisReportInput): string {
       ["工具", "具体命令", "次数", "最大传参", "均传参", "输入 chars", "输出 tokens"],
       topByParams.map((a) => [
         a.tool,
-        escCell(truncate(a.command, 100)),
+        escCell(commandPreview(a.command, 100)),
         String(a.count),
         String(a.max_param_count),
         String(a.avg_param_count),
@@ -442,21 +439,25 @@ export function buildAnalysisReport(input: AnalysisReportInput): string {
     sectionShell(rows),
   );
 
-  const readSec = sectionByTool("Read", "Read — 按文件路径", rows, "text");
+  const readSec = sectionByTool("Read", "Read — 按文件路径", rows);
   if (readSec) lines.push("## 6. Read 耗时与输出（按 path）", "", readSec);
 
-  const grepSec = sectionByTool("Grep", "Grep — 按 pattern + path", rows, "text");
+  const grepSec = sectionByTool("Grep", "Grep — 按 pattern + path", rows);
   if (grepSec) lines.push("## 7. Grep 耗时与输出（按 pattern）", "", grepSec);
 
-  const mcpSec = sectionByTool("CallMcpTool", "MCP — 按 server/tool + 查询", rows, "text");
+  const mcpSec = sectionByTool("CallMcpTool", "MCP — 按 server/tool + 查询", rows);
   if (mcpSec) lines.push("## 8. MCP 调用（按 server/tool）", "", mcpSec);
 
   const rest = [...new Set(rows.map((r) => r.tool))].filter((t) => !["Shell", "Read", "Grep", "CallMcpTool"].includes(t));
   if (rest.length) {
-    lines.push("## 9. 其他工具", "");
-    for (const t of rest) {
-      lines.push(sectionByTool(t, t, rows, "text"));
-    }
+    lines.push(
+      "## 9. 其他工具（按工具聚合）",
+      "",
+      sectionOtherTools(rest, rows),
+      "",
+      "> 具体调用见 `command_breakdown.json`。",
+      "",
+    );
   }
 
   lines.push(
@@ -466,7 +467,7 @@ export function buildAnalysisReport(input: AnalysisReportInput): string {
       ["工具", "具体命令", "次数", "总耗时", "总 tokens"],
       topByTime.map((a) => [
         a.tool,
-        escCell(truncate(a.command, 120)),
+        escCell(commandPreview(a.command, 120)),
         String(a.count),
         formatDuration(a.total_duration_ms),
         `~${formatTokenCount(a.total_output_tokens)}`,
@@ -479,7 +480,7 @@ export function buildAnalysisReport(input: AnalysisReportInput): string {
       ["工具", "具体命令", "次数", "总 tokens", "总耗时"],
       topByTokens.map((a) => [
         a.tool,
-        escCell(truncate(a.command, 120)),
+        escCell(commandPreview(a.command, 120)),
         String(a.count),
         `~${formatTokenCount(a.total_output_tokens)}`,
         formatDuration(a.total_duration_ms),
@@ -491,7 +492,7 @@ export function buildAnalysisReport(input: AnalysisReportInput): string {
   lines.push(
     "---",
     "",
-    "_Generated by TrajRx — 每份 session 独立 `analysis-report.md`；命令耗时、传参与输出拆到具体 Shell/Grep/Read/MCP 实例。_",
+    "_Generated by TrajRx — `analysis-report.md` 保持紧凑；完整调用明细见 `command_breakdown.json`。_",
     ""
   );
 

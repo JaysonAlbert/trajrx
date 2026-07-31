@@ -82,10 +82,20 @@ AI-readable session transcript. Step anchors (`#SN`) match `step_index` in viola
 
 ### `analysis-report.md`
 
-Consolidated session report. Section **2. 会话指标** includes:
+Compact, human-first session report. It keeps bounded Top tables for attribution,
+optimization candidates, slow commands, and large outputs. It does not expand every
+command or every invocation inline; exhaustive call-level data remains in
+`command_breakdown.json`.
+
+Section **2. 会话指标** includes:
 
 - 会话墙时（含用户等待） / 会话活跃墙时（扣除用户等待） / 用户等待时间 (Codex)
 - 工具总墙时, tool output tokens, violation count, primary cause
+
+Command previews in the Markdown report redact common URI passwords and
+authorization/secret arguments. The source transcript and machine-readable
+`command_breakdown.json` remain detailed diagnostic artifacts and should still be
+handled as potentially sensitive.
 
 ### `run-summary.md` / `run-summary.json`
 

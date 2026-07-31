@@ -26,6 +26,36 @@ export interface ProcessOptions {
   sessionTitle?: string;
 }
 
+export function mergeAgentEvalSummary(
+  current: RunSummary,
+  previous?: RunSummary,
+  checker?: CheckerResult,
+  attribution?: Attribution,
+): RunSummary {
+  const previousArtifacts = previous?.artifacts ?? [];
+  const artifacts = [...previousArtifacts];
+  for (const artifact of current.artifacts) {
+    if (!artifacts.some((item) => item.path === artifact.path)) {
+      artifacts.push(artifact);
+    }
+  }
+
+  return {
+    ...current,
+    session_title: previous?.session_title,
+    violations: checker?.violation_count ?? previous?.violations ?? current.violations,
+    primary_cause: attribution?.primary_cause ?? previous?.primary_cause,
+    confidence: attribution?.confidence ?? previous?.confidence,
+    reconcile_verdict: previous?.reconcile_verdict,
+    session_wall_sec: previous?.session_wall_sec,
+    session_active_wall_sec: previous?.session_active_wall_sec,
+    user_idle_sec: previous?.user_idle_sec,
+    tool_time_sec: previous?.tool_time_sec,
+    output_tokens: previous?.output_tokens,
+    artifacts,
+  };
+}
+
 function ensureDir(path: string) {
   mkdirSync(path, { recursive: true });
 }
@@ -371,11 +401,23 @@ export async function agentEvalOnly(runDir: string, opts: ProcessOptions = {}) {
   ]);
 
   const traj = JSON.parse(readFileSync(join(runDir, "trajectory_ir.json"), "utf-8"))[0] as TrajectoryIR;
+  const previousSummaryPath = join(runDir, "run-summary.json");
+  const checkerPath = join(runDir, "checker_results", "violations.json");
+  const attributionPath = join(runDir, "judge_output", "attribution.json");
+  const previousSummary = existsSync(previousSummaryPath)
+    ? JSON.parse(readFileSync(previousSummaryPath, "utf-8")) as RunSummary
+    : undefined;
+  const checker = existsSync(checkerPath)
+    ? JSON.parse(readFileSync(checkerPath, "utf-8"))[0] as CheckerResult
+    : undefined;
+  const attribution = existsSync(attributionPath)
+    ? JSON.parse(readFileSync(attributionPath, "utf-8"))[0] as Attribution
+    : undefined;
   const flatCandidates = [join(runDir, `${traj.trajectory_id}.flat.md`), ...requireFlat(runDir)];
   const flatMdPath = flatCandidates.find((p) => existsSync(p)) ?? join(runDir, `${traj.trajectory_id}.flat.md`);
   const finishedAt = new Date();
 
-  const summary: RunSummary = {
+  const summary = mergeAgentEvalSummary({
     run_name: basename(runDir),
     run_dir: runDir,
     session_id: traj.trajectory_id,
@@ -399,7 +441,7 @@ export async function agentEvalOnly(runDir: string, opts: ProcessOptions = {}) {
       { label: "analysis-report.md", path: join(runDir, "analysis-report.md"), description: "Static analysis report" },
     ],
     log_path: ui.logger.path,
-  };
+  }, previousSummary, checker, attribution);
 
   ui.finish(summary);
   return runDir;

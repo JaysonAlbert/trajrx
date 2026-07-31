@@ -52,21 +52,6 @@ const invCtx003: CheckFn = (traj, steps) => {
   return [];
 };
 
-const invCtx004: CheckFn = (traj, steps) => {
-  const userTurns = traj.metadata.user_turns ?? 0;
-  let writes = 0;
-  for (const s of steps) {
-    for (const tn of s.telemetry.tool_names) {
-      if (tn === "Write" || tn === "StrReplace") writes++;
-    }
-  }
-  if (userTurns >= 20 && writes < 15) {
-    return [v("INV-CTX-004", "context", steps.at(-1)?.index ?? 0, "high",
-      `Scope creep: ${userTurns} user turns but only ${writes} write/edit ops`, { user_turns: userTurns, writes })];
-  }
-  return [];
-};
-
 const invTool001: CheckFn = (_t, steps) => {
   const patterns = new Map<string, number>();
   const firstStep = new Map<string, number>();
@@ -97,7 +82,7 @@ const invTool002: CheckFn = (_t, steps) => {
   }
   const out: Violation[] = [];
   for (const [cmd, cnt] of cmds) {
-    if (cnt >= 2) {
+    if (cnt >= 3) {
       out.push(v("INV-TOOL-002", "tool", firstStep.get(cmd)!, "medium", `Shell command repeated ${cnt} times`, { command: cmd.slice(0, 300), count: cnt }));
     }
   }
@@ -116,7 +101,7 @@ const invTool003: CheckFn = (_t, steps) => {
     }
   }
   if (harnessRuns >= 4) {
-    return [v("INV-TOOL-003", "tool", firstIdx || 1, "high", `Harness test run invoked ${harnessRuns} times (trial-and-error loop)`, { harness_test_runs: harnessRuns })];
+    return [v("INV-TOOL-003", "tool", firstIdx || 1, "medium", `Harness test run observed ${harnessRuns} times; inspect whether retries were avoidable`, { harness_test_runs: harnessRuns })];
   }
   return [];
 };
@@ -263,7 +248,7 @@ const invSkill001: CheckFn = (_t, steps) => {
       if (tn === "Write" || tn === "StrReplace") writeCount++;
     }
   }
-  if (skillRead && totalRead + totalGrep > 30 && writeCount < 3) {
+  if (skillRead && totalRead + totalGrep > 80 && writeCount < 3) {
     return [v("INV-SKILL-001", "skill", steps.at(-1)?.index ?? 0, "medium",
       `Skill loaded but exploration-heavy (${totalRead} reads, ${totalGrep} greps, ${writeCount} writes)`,
       { reads: totalRead, greps: totalGrep, writes: writeCount })];
@@ -302,16 +287,22 @@ const invCodex001: CheckFn = (traj, steps) => {
 
 const invCodex002: CheckFn = (traj, steps) => {
   const eff = traj.metadata.tool_efficiency as { thinking_gaps_ms?: Array<{ after_step: number; gap_ms: number; label: string }> } | undefined;
-  const gaps = eff?.thinking_gaps_ms ?? [];
-  const out: Violation[] = [];
-  for (const gap of gaps) {
-    if (gap.gap_ms >= 120_000) {
-      out.push(v("INV-CODEX-002", "context", gap.after_step, "high",
-        `Long idle gap ${Math.round(gap.gap_ms / 1000)}s before next step (model/tool wait)`,
-        { gap_ms: gap.gap_ms, label: gap.label.slice(0, 200) }));
-    }
-  }
-  return out;
+  const gaps = (eff?.thinking_gaps_ms ?? []).filter((gap) => gap.gap_ms >= 120_000);
+  if (!gaps.length) return [];
+  const longest = gaps.reduce((left, right) => right.gap_ms > left.gap_ms ? right : left);
+  return [v(
+    "INV-CODEX-002",
+    "context",
+    gaps[0]!.after_step,
+    "medium",
+    `${gaps.length} long same-turn gaps detected (max ${Math.round(longest.gap_ms / 1000)}s); inspect timing before attributing inefficiency`,
+    {
+      gap_count: gaps.length,
+      max_gap_ms: longest.gap_ms,
+      total_gap_ms: gaps.reduce((total, gap) => total + gap.gap_ms, 0),
+      step_indexes: gaps.slice(0, 20).map((gap) => gap.after_step),
+    },
+  )];
 };
 
 const invCodex003: CheckFn = (_t, steps) => {
@@ -342,7 +333,6 @@ export const PRESET_INVARIANTS: Invariant[] = [
   { invariant_id: "INV-CTX-001", category: "context", description: "Too many tools per step", check: invCtx001 },
   { invariant_id: "INV-CTX-002", category: "context", description: "Excessive Read ops", check: invCtx002 },
   { invariant_id: "INV-CTX-003", category: "context", description: "High assistant/user ratio", check: invCtx003 },
-  { invariant_id: "INV-CTX-004", category: "context", description: "Scope creep low delivery", check: invCtx004 },
   { invariant_id: "INV-TOOL-001", category: "tool", description: "Repeated Grep", check: invTool001 },
   { invariant_id: "INV-TOOL-002", category: "tool", description: "Repeated Shell", check: invTool002 },
   { invariant_id: "INV-TOOL-003", category: "tool", description: "Harness retry loop", check: invTool003 },

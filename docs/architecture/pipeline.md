@@ -104,6 +104,9 @@ The compact static summary labels `command_breakdown` call counts as observed ev
 and shell/read/grep aggregate counters as heuristic features. Deterministic conflict
 markers require the Agent to report telemetry limitations instead of quoting inflated
 feature counters as literal calls.
+The efficiency rubric also treats user idle as chronology only, excludes user-requested
+scope expansion from Agent scope creep, and forbids recommendations for unobserved CLI
+flags or capabilities.
 If the second pass is still insufficient, the Agent must emit a final Markdown
 evaluation with delivery outcome `无法判断`.
 
