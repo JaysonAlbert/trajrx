@@ -62,6 +62,25 @@ exclusive observed tool categories, matching `tool_breakdown`. Separate command 
 pattern arrays may still record embedded operations (for example `docker logs | rg`)
 for repetition diagnostics without inflating invocation counts.
 
+## Session-index selection features
+
+`trajrx session analyze` projects a versioned `cheap_features` object into each
+session-index entry. It is intended for inexpensive, deterministic candidate
+selection before any Agent evaluation and includes:
+
+- gross and active wall time, user turns, Assistant steps, tool calls, tool
+  output tokens, and transcript bytes;
+- resume, context-compaction, and subagent-spawn counts when the source exposes
+  them reliably;
+- explicit error counts plus exact repeated-tool signatures used as retry and
+  loop signals.
+
+`extraction_status` is `complete`, `partial`, or `unavailable`. Unsupported or
+unobservable metrics are `null` and listed in `unavailable`; zero means the
+extractor observed the metric and found no occurrences. The retry/loop fields
+are selection signals rather than causal diagnoses: Harness should combine
+them with configurable thresholds and persist the reason for each decision.
+
 ## Tool input parameters
 
 TrajRx estimates how many parameters each tool invocation passes, to surface CLI ergonomics issues (e.g. long `harness test run` command lines).

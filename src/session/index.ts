@@ -6,6 +6,7 @@ import { basename, dirname, join } from "node:path";
 import { createInterface } from "node:readline";
 import { getCodexHome, getCursorHome, getRunsDir, getTrajrxHome, type TranscriptSource } from "../config.js";
 import type { RunSummary } from "../ui/summary.js";
+import { extractCheapSessionFeatures, type CheapSessionFeatures } from "./features.js";
 
 const require = createRequire(import.meta.url);
 const SCHEMA = "trajrx_session_index_v1";
@@ -31,6 +32,7 @@ export interface SessionIndexEntry {
   artifact_paths: string[];
   handoff_paths: string[];
   resume_prompt: string;
+  cheap_features: CheapSessionFeatures;
   cache: {
     transcript_mtime_ms: number;
     transcript_size: number;
@@ -187,7 +189,8 @@ function sessionKey(source: TranscriptSource, sessionId: string): string {
 
 function cacheMatches(previous: SessionIndexEntry, scanned: ScannedSession): boolean {
   return (
-    previous.cache?.transcript_mtime_ms === scanned.cache.transcript_mtime_ms
+    previous.cheap_features?.feature_version === 1
+    && previous.cache?.transcript_mtime_ms === scanned.cache.transcript_mtime_ms
     && previous.cache?.transcript_size === scanned.cache.transcript_size
   );
 }
@@ -435,6 +438,7 @@ function analyzeSession(session: ScannedSession, runs: Map<string, RunRecord>): 
     artifact_paths: run?.artifacts ?? [],
     handoff_paths: [],
     resume_prompt: buildResumePrompt(session, workItemId, status.reason),
+    cheap_features: extractCheapSessionFeatures(session.transcript_path, session.source),
     cache: session.cache,
   };
 }

@@ -85,6 +85,8 @@ trajrx session analyze --changed-only --output ~/.trajrx/session-index.json
 
 `--changed-only` preserves cached analysis for unchanged transcript files by comparing mtime and size. Harness Console reads this JSON as a recovery index for active or unfinished Codex/Cursor sessions.
 
+Each session entry also includes versioned `cheap_features` for deterministic downstream selection: gross/active wall time, turns, steps, tool calls and output tokens, transcript bytes, resume/compaction/subagent counts, and explicit error/retry/loop signals. Extraction never invokes a model. A metric that cannot be supported reliably by the source is `null` and named in `unavailable`; it is not reported as zero.
+
 ## Environment
 
 | Variable | Default | Purpose |
