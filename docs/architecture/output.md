@@ -25,6 +25,7 @@ runs/<name>/
 ├── analysis-report.md               # Consolidated analysis
 ├── command_breakdown.json           # Shell/command usage breakdown
 ├── tool_efficiency.json             # Tool timing & efficiency stats
+├── subagent_efficiency.json         # Subagent execution, overlap, and parent-wait evidence
 ├── reconcile/
 │   ├── reconciliation.json          # Reconcile output
 │   └── manual_attribution.json        # Manual attribution hints
@@ -86,6 +87,11 @@ Compact, human-first session report. It keeps bounded Top tables for attribution
 optimization candidates, slow commands, and large outputs. It does not expand every
 command or every invocation inline; exhaustive call-level data remains in
 `command_breakdown.json`.
+
+When subagents are observed, the report separates total subagent execution
+effort, parallel wall-clock union, explicit parent wait, and maximum
+parallelism. See [Subagent efficiency evidence](/architecture/subagent-efficiency)
+for the non-additive time semantics and source precision.
 
 Section **2. 会话指标** includes:
 

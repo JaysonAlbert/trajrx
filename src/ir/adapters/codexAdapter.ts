@@ -6,6 +6,7 @@ import type { RawTrajectory } from "../../types/index.js";
 import type { CodexRolloutEvent } from "../../types/codex.js";
 import type { CodexSessionToolStats } from "../../enrich/codexToolMetrics.js";
 import type { FlattenOptions, TranscriptAdapter, TranscriptEnrichment } from "./types.js";
+import { extractSubagentEfficiency } from "../../session/subagentEfficiency.js";
 
 function formatTokenCount(n: number): string {
   if (n >= 1_000_000) return `~${(n / 1_000_000).toFixed(1)}M`;
@@ -16,7 +17,7 @@ function formatTokenCount(n: number): string {
 export const codexAdapter: TranscriptAdapter = {
   format: "codex_rollout",
 
-  enrich(_inputPath, raw) {
+  enrich(inputPath, raw) {
     const traj = raw[0]!;
     const session = parseCodexRollout(traj.events as CodexRolloutEvent[], traj.trajectory_id);
     const { metricsMap, sessionToolStats } = enrichCodexSession(session);
@@ -31,6 +32,7 @@ export const codexAdapter: TranscriptAdapter = {
       toolTimeSec,
       outputTokens,
       detail: `codex · ${traj.events.length} events · ${toolTimeSec}s · ${formatTokenCount(outputTokens)} tokens`,
+      subagentEfficiency: extractSubagentEfficiency(inputPath, "codex"),
     };
   },
 
@@ -46,11 +48,15 @@ export const codexAdapter: TranscriptAdapter = {
 
   buildIr(raw, enrichment) {
     const traj = raw[0]!;
-    return codexIr(
+    const trajectories = codexIr(
       traj.events as CodexRolloutEvent[],
       traj.trajectory_id,
       enrichment.metricsMap,
       enrichment.sessionToolStats,
     );
+    for (const trajectory of trajectories) {
+      trajectory.metadata.subagent_efficiency = enrichment.subagentEfficiency;
+    }
+    return trajectories;
   },
 };

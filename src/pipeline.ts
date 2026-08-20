@@ -105,9 +105,12 @@ function runIr(
   writeFileSync(outPath, JSON.stringify(data, null, 2), "utf-8");
   const toolMetricsPath = join(runDir, "tool_efficiency.json");
   writeFileSync(toolMetricsPath, JSON.stringify(enrichment.sessionToolStats, null, 2), "utf-8");
+  const subagentPath = join(runDir, "subagent_efficiency.json");
+  writeFileSync(subagentPath, JSON.stringify(enrichment.subagentEfficiency, null, 2), "utf-8");
   const steps = data.reduce((n, t) => n + t.steps.length, 0);
   ui.log(`Wrote ${outPath} (${data.length} trajectory/ies, ${steps} steps)`);
   ui.log(`Wrote ${toolMetricsPath}`);
+  ui.log(`Wrote ${subagentPath}`);
   return { irPath: outPath, trajectories: data, steps };
 }
 
@@ -215,6 +218,7 @@ function buildArtifacts(
   }
   artifacts.push(
     { label: "trajectory_ir.json", path: join(runDir, "trajectory_ir.json"), description: "Normalized trajectory IR" },
+    { label: "subagent_efficiency.json", path: join(runDir, "subagent_efficiency.json"), description: "Subagent timing and parallelism evidence" },
     { label: basename(flatMdPath), path: flatMdPath, description: "Flattened transcript" },
     { label: "checker_results/violations.json", path: join(runDir, "checker_results", "violations.json"), description: "Invariant violations" },
   );

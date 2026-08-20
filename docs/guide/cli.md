@@ -59,6 +59,23 @@ trajrx runs/my-analysis --analysis-only
 trajrx runs/my-analysis --agent-eval-only --agent-cli cursor --agent-model auto
 ```
 
+## Subagent efficiency evidence
+
+Use the lightweight subcommand when a workflow or Hook needs deterministic
+subagent timing without running the full attribution pipeline:
+
+```bash
+trajrx subagents /path/to/rollout.jsonl --json
+trajrx subagents /path/to/rollout.jsonl \
+  --from 2026-08-20T01:17:49.930Z \
+  --to 2026-08-20T01:56:21.931Z \
+  --json
+```
+
+`--from` and `--to` are required together. The time window clips overlapping
+activation and parent-wait intervals, which lets a Hook analyze only the turn
+that triggered it. See [Subagent efficiency evidence](/architecture/subagent-efficiency).
+
 ## Agent evaluation (LLM path)
 
 ```bash
@@ -88,6 +105,7 @@ Supported external CLIs: `cursor-agent`, `claude`, `codex`.
 trajrx <transcript.jsonl> [--run-name NAME] [--agent-eval]
 trajrx --source codex|cursor --title "会话标题" [--run-name NAME] [--agent-eval]
 trajrx --source codex|cursor --title "会话标题" --list-sessions
+trajrx subagents <transcript.jsonl> [--from ISO --to ISO] [--json]
 trajrx <transcript.jsonl> --flatten-only [-o out.md]
 trajrx <run-dir> --analysis-only
 trajrx <run-dir> --agent-eval-only [--agent-cli cursor|claude|codex] [--agent-model MODEL]
@@ -104,5 +122,7 @@ trajrx <dir> --batch [--agent-eval]
 | `--analysis-only` | Regenerate analysis from existing run |
 | `--verbose` | Mirror stage details to stdout |
 | `--list-sessions` | Print matching sessions and exit |
+| `--from` / `--to` | Inclusive ISO-8601 window for `subagents` evidence; both required |
+| `--json` | Print complete machine-readable `subagents` evidence |
 
 Terminal output uses compact per-stage progress. Set `TRAJRX_PLAIN=1` to force plain-line mode without TUI.

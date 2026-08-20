@@ -4,6 +4,7 @@ import { cursorIr } from "../cursorIr.js";
 import type { RawTrajectory } from "../../types/index.js";
 import type { CursorEvent } from "../../types/index.js";
 import type { FlattenOptions, TranscriptAdapter, TranscriptEnrichment } from "./types.js";
+import { extractSubagentEfficiency } from "../../session/subagentEfficiency.js";
 
 function formatTokenCount(n: number): string {
   if (n >= 1_000_000) return `~${(n / 1_000_000).toFixed(1)}M`;
@@ -30,6 +31,7 @@ export const cursorAdapter: TranscriptAdapter = {
       toolTimeSec,
       outputTokens,
       detail: `cursor · ${traj.events.length} events · ${toolTimeSec}s · ${formatTokenCount(outputTokens)} tokens`,
+      subagentEfficiency: extractSubagentEfficiency(inputPath, "cursor"),
     };
   },
 
@@ -44,8 +46,12 @@ export const cursorAdapter: TranscriptAdapter = {
   },
 
   buildIr(raw, enrichment) {
-    return cursorIr(raw, enrichment.metricsMap, enrichment.sessionToolStats, {
+    const trajectories = cursorIr(raw, enrichment.metricsMap, enrichment.sessionToolStats, {
       terminals: enrichment.cursorContext?.terminals ?? [],
     });
+    for (const trajectory of trajectories) {
+      trajectory.metadata.subagent_efficiency = enrichment.subagentEfficiency;
+    }
+    return trajectories;
   },
 };

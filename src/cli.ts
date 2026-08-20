@@ -8,6 +8,8 @@ import { formatRunsList, listRuns } from "./runs/list.js";
 import { buildSessionIndex, defaultSessionIndexPath, formatSessionIndex, writeSessionIndex } from "./session/index.js";
 import { formatSessionMatches, resolveSessionByTitle, searchSessionsByTitle } from "./session/search.js";
 import { getRunsDir } from "./config.js";
+import { extractSubagentEfficiency } from "./session/subagentEfficiency.js";
+import { formatDuration } from "./enrich/toolMetrics.js";
 
 const VERSION = (JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8")) as { version: string })
   .version;
@@ -19,6 +21,7 @@ const USAGE = `Usage:
   trajrx --source codex|cursor --title "会话标题" [--exact] --list-sessions
   trajrx session scan [--output PATH] [--json]
   trajrx session analyze [--changed-only] [--output PATH] [--json]
+  trajrx subagents <transcript.jsonl> [--from ISO --to ISO] [--json]
   trajrx runs list [--limit N]
   trajrx <transcript.jsonl> --flatten-only [-o out.md]
   trajrx <run-dir> --analysis-only
@@ -41,6 +44,11 @@ Session lookup:
   --exact               Require exact title match (no substring); use with --title
   --list-sessions       Print matching sessions and exit (requires --source --title)
   --cursor-project      Limit Cursor search to one project slug under ~/.cursor/projects/
+
+Subagent evidence:
+  subagents             Print deterministic child execution, overlap, and parent-wait evidence
+  --from / --to         Restrict evidence to one inclusive ISO-8601 time window (both required)
+  --json                Print the complete machine-readable evidence object
 
 Agent evaluation (LLM path):
   --agent-eval          Run agent CLI evaluation after rule pipeline
@@ -99,6 +107,47 @@ function parseSessionArgs(argv: string[]): { output?: string; changedOnly: boole
     }
   }
   return { output, changedOnly, json, showHelp };
+}
+
+function parseSubagentArgs(argv: string[]): { input: string; from?: string; to?: string; json: boolean; showHelp: boolean } {
+  let input: string | undefined;
+  let from: string | undefined;
+  let to: string | undefined;
+  let json = false;
+  let showHelp = false;
+  for (let i = 0; i < argv.length; i++) {
+    const arg = argv[i];
+    if (arg === "--help" || arg === "-h") showHelp = true;
+    else if (arg === "--json") json = true;
+    else if (arg === "--from") {
+      from = argv[++i];
+      if (!from) throw new Error("--from requires an ISO-8601 timestamp");
+    } else if (arg === "--to") {
+      to = argv[++i];
+      if (!to) throw new Error("--to requires an ISO-8601 timestamp");
+    } else if (arg.startsWith("-")) {
+      throw new Error(`Unknown option for subagents: ${arg}`);
+    } else if (!input) input = arg;
+    else throw new Error(`Unexpected argument for subagents: ${arg}`);
+  }
+  if (showHelp) return { input: input ?? "", from, to, json, showHelp };
+  if (!input) throw new Error("subagents requires a transcript path");
+  if (Boolean(from) !== Boolean(to)) throw new Error("--from and --to must be provided together");
+  return { input, from, to, json, showHelp };
+}
+
+function formatSubagentEvidence(evidence: ReturnType<typeof extractSubagentEfficiency>): string {
+  const lines = [
+    `source=${evidence.source} precision=${evidence.timing_precision}`,
+    `subagents=${evidence.subagent_count} activations=${evidence.activation_count} aborted=${evidence.aborted_count} max_parallelism=${evidence.max_parallelism}`,
+    `execution_sum=${formatDuration(evidence.execution_sum_ms)} wall_union=${formatDuration(evidence.wall_union_ms)} parent_wait=${evidence.parent_wait_ms === null ? "unavailable" : formatDuration(evidence.parent_wait_ms)} wait_calls=${evidence.parent_wait_count ?? "unavailable"}`,
+  ];
+  if (evidence.scope) lines.push(`scope=${evidence.scope.started_at}..${evidence.scope.ended_at}`);
+  for (const child of evidence.subagents) {
+    lines.push(`${child.task_name ?? child.session_id} activations=${child.activation_count} execution=${formatDuration(child.execution_ms)} status=${child.status}`);
+  }
+  if (evidence.unavailable.length) lines.push(`unavailable=${evidence.unavailable.join(",")}`);
+  return lines.join("\n");
 }
 
 function parseArgs(argv: string[]) {
@@ -213,6 +262,20 @@ async function main() {
   const argv = process.argv.slice(2);
   if (argv.includes("-v") || argv.includes("--version")) {
     console.log(`trajrx ${VERSION}`);
+    return;
+  }
+
+  if (argv[0] === "subagents") {
+    const args = parseSubagentArgs(argv.slice(1));
+    if (args.showHelp) {
+      console.log(USAGE);
+      return;
+    }
+    const evidence = extractSubagentEfficiency(args.input, undefined, {
+      startedAt: args.from,
+      endedAt: args.to,
+    });
+    console.log(args.json ? JSON.stringify(evidence, null, 2) : formatSubagentEvidence(evidence));
     return;
   }
 
