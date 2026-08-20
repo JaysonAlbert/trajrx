@@ -229,7 +229,7 @@ test("Codex prefers observed payload timing when outer JSONL timestamps are dela
       turn_id: "one",
       started_at: epochSeconds("2026-08-20T00:00:01.000Z"),
       completed_at: epochSeconds("2026-08-20T00:00:05.000Z"),
-      duration_ms: 4_000,
+      duration_ms: 3_500,
     }),
   ]);
   writeJsonl(join(day, "rollout-child-two.jsonl"), [
@@ -242,7 +242,7 @@ test("Codex prefers observed payload timing when outer JSONL timestamps are dela
       turn_id: "two",
       started_at: epochSeconds("2026-08-20T00:00:03.000Z"),
       completed_at: epochSeconds("2026-08-20T00:00:07.000Z"),
-      duration_ms: 4_000,
+      duration_ms: 3_000,
     }),
   ]);
 
@@ -252,11 +252,15 @@ test("Codex prefers observed payload timing when outer JSONL timestamps are dela
   });
 
   assert.equal(evidence.subagent_count, 2);
-  assert.equal(evidence.execution_sum_ms, 8_000);
+  assert.equal(evidence.execution_sum_ms, 6_500);
   assert.equal(evidence.wall_union_ms, 6_000);
   assert.equal(evidence.parent_wait_ms, 4_000);
   assert.equal(evidence.parent_wait_count, 1);
   assert.equal(evidence.max_parallelism, 2);
+  assert.deepEqual(
+    evidence.subagents.map((child) => child.started_at),
+    ["2026-08-20T00:00:01.000Z", "2026-08-20T00:00:03.000Z"],
+  );
 });
 
 test("Codex counts an aborted child as observed execution and exposes the abort", () => {

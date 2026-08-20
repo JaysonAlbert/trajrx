@@ -310,10 +310,10 @@ function codexActivations(events: CodexRolloutEvent[]): SubagentActivation[] {
     const recordedStart = recordedStartMs === null || recordedStartMs === undefined
       ? null
       : new Date(recordedStartMs).toISOString();
-    // Completed events provide both canonical duration and completion time.
-    // Deriving the start from them preserves millisecond duration even when
-    // started_at is stored as whole epoch seconds.
-    const startedAt = observedDuration !== null ? inferredStart : recordedStart;
+    // Position intervals from observed endpoints. duration_ms remains the
+    // cumulative-execution measure and can legitimately differ slightly from
+    // the endpoint span; only derive a start when no observed start exists.
+    const startedAt = recordedStart ?? inferredStart;
     const duration = observedDuration ?? intervalDuration(startedAt, endedAt);
     activations.push({
       activation_id: turnId,

@@ -36,6 +36,11 @@ and `internal_chat_message_metadata_passthrough.create_time` on parent
 fallback because some rollouts serialize events later than their observed
 execution time.
 
+Activation interval placement prefers the observed `started_at` and
+`completed_at` endpoints. Cumulative execution uses the observed `duration_ms`;
+the values may differ slightly and are not forced to agree by synthesizing a
+new endpoint.
+
 Cursor stores child transcripts below the parent transcript directory in
 `subagents/*.jsonl`, but the transcript rows do not expose event timestamps.
 TrajRx uses file birth and modification times as an approximation, labels the
