@@ -59,6 +59,10 @@ trajrx ~/.codex/sessions/2026/06/15/rollout-*.jsonl --run-name codex-analysis
 trajrx subagents ~/.codex/sessions/2026/06/15/rollout-*.jsonl --json
 trajrx subagents rollout.jsonl --from 2026-08-20T01:17:49.930Z --to 2026-08-20T01:56:21.931Z --json
 
+# Deterministic evidence for the exact completed turn selected by a Hook
+trajrx turn analyze --client codex --hook-state /path/to/hook-state --json
+trajrx turn analyze --client cursor --hook-state /path/to/hook-state --json
+
 # Full pipeline + LLM agent evaluation
 trajrx --source codex --title "修复 ZYTGXT-131287" --run-name ZYTGXT-131287 --agent-eval
 
@@ -112,6 +116,13 @@ Each run writes `run.log`, `run-summary.md`, and `run-summary.json`. The termina
 separate cumulative child execution, parallel wall-clock union, explicit parent
 wait, and maximum parallelism. Use `trajrx subagents --from/--to --json` when a
 Hook must analyze only its triggering turn rather than the full task.
+
+**Hook-scoped turn evidence:** `trajrx turn analyze` emits the versioned
+`trajrx_turn_analysis_v1` contract with stage timing inputs, tool-call friction,
+compaction, and subagent efficiency for one exact completed turn. Both clients
+require matching Hook state; the acknowledgement secret is never passed to
+TrajRx. Ambiguous or incomplete selection fails non-zero. See
+[Canonical turn analysis](./docs/architecture/turn-analysis.md).
 
 ## Local test fixtures
 
