@@ -1,4 +1,5 @@
 import type { CodexRolloutEvent } from "./codex.js";
+import type { SubagentEfficiencyEvidence } from "../session/subagentEfficiency.js";
 
 export type Severity = "low" | "medium" | "high" | "critical";
 export type Category = "context" | "tool" | "mcp" | "skill" | "unknown";
@@ -71,6 +72,7 @@ export interface TrajectoryIR {
     user_idle_ms?: number;
     session_started_at?: string;
     session_ended_at?: string;
+    subagent_efficiency?: SubagentEfficiencyEvidence;
   };
   steps: TrajectoryStep[];
 }

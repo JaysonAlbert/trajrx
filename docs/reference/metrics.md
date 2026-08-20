@@ -46,6 +46,23 @@ IR metadata records provenance: `metadata.session.wall_source` (`event_timestamp
 
 Tool wall time is **not** the same as session wall time — it excludes thinking gaps, user idle, and time between tool calls without a measured duration.
 
+## Subagent time
+
+TrajRx reports subagent time using separate, non-additive metrics:
+
+| Metric | Meaning |
+| --- | --- |
+| `execution_sum_ms` | Sum of observed child activations; parallel work is counted once per child. |
+| `wall_union_ms` | Union of child activation intervals; parallel overlap is counted once. |
+| `parent_wait_ms` | Union of explicit parent `wait_agent` calls. |
+| `max_parallelism` | Maximum simultaneous child activations. |
+
+Codex uses rollout parent metadata plus observed task payload and wait-call
+`create_time` timestamps, with outer event timestamps as a fallback. Cursor uses the
+parent transcript's `subagents/` directory and child file times, so its timing
+is explicitly approximate and parent wait is unavailable. Full details are in
+`subagent_efficiency.json`; see [Subagent efficiency evidence](/architecture/subagent-efficiency).
+
 ## Other session metrics
 
 | Metric | Location | Meaning |

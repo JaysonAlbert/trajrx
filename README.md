@@ -55,6 +55,10 @@ trajrx --source cursor --cursor-project Users-you-Projects-myrepo --title "fix l
 # Codex rollout trace (direct path, auto-detected)
 trajrx ~/.codex/sessions/2026/06/15/rollout-*.jsonl --run-name codex-analysis
 
+# Deterministic subagent evidence for a whole task or one Hook turn
+trajrx subagents ~/.codex/sessions/2026/06/15/rollout-*.jsonl --json
+trajrx subagents rollout.jsonl --from 2026-08-20T01:17:49.930Z --to 2026-08-20T01:56:21.931Z --json
+
 # Full pipeline + LLM agent evaluation
 trajrx --source codex --title "修复 ZYTGXT-131287" --run-name ZYTGXT-131287 --agent-eval
 
@@ -103,6 +107,11 @@ Each session entry also includes versioned `cheap_features` for deterministic do
 Each run writes `run.log`, `run-summary.md`, and `run-summary.json`. The terminal summary uses [boxen](https://github.com/sindresorhus/boxen) and highlights report paths (`analysis-report.md`, `agent-evaluation.md`).
 
 **Session metrics (Codex):** `analysis-report.md` §2 shows gross session wall time (含用户等待), active wall time (扣除用户等待), and user idle when present. See [docs/reference/metrics.md](./docs/reference/metrics.md).
+
+**Subagent metrics:** `subagent_efficiency.json` and `analysis-report.md` §2.1
+separate cumulative child execution, parallel wall-clock union, explicit parent
+wait, and maximum parallelism. Use `trajrx subagents --from/--to --json` when a
+Hook must analyze only its triggering turn rather than the full task.
 
 ## Local test fixtures
 

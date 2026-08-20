@@ -327,6 +327,7 @@ export function buildAnalysisReport(input: AnalysisReportInput): string {
   const userTurns = traj.metadata.user_turns ?? 0;
   const stepCount = traj.metadata.step_count ?? traj.steps.length;
   const stepRatio = userTurns > 0 ? `${(stepCount / userTurns).toFixed(1)}:1` : "—";
+  const subagent = traj.metadata.subagent_efficiency;
 
   const metricRows: Array<[string, string]> = [
     ["用户轮次", String(userTurns)],
@@ -341,6 +342,20 @@ export function buildAnalysisReport(input: AnalysisReportInput): string {
   }
   if (userIdleMs != null && userIdleMs > 0) {
     metricRows.push(["用户等待时间", formatDuration(userIdleMs)]);
+  }
+  if (subagent && subagent.subagent_count > 0) {
+    metricRows.push(
+      ["子 Agent 会话 / 激活", `${subagent.subagent_count} / ${subagent.activation_count}`],
+      ["子 Agent 执行累计", formatDuration(subagent.execution_sum_ms)],
+      ["子 Agent 并行墙时（区间并集）", formatDuration(subagent.wall_union_ms)],
+      ["主 Agent 显式等待子 Agent", subagent.parent_wait_ms === null
+        ? "不可用"
+        : `${formatDuration(subagent.parent_wait_ms)} / ${subagent.parent_wait_count ?? 0} 次`],
+      ["子 Agent 最大并行度", String(subagent.max_parallelism)],
+    );
+    if (subagent.aborted_count > 0) {
+      metricRows.push(["子 Agent 中止激活", String(subagent.aborted_count)]);
+    }
   }
   metricRows.push(
     ["工具调用次数", String(tel.total_tool_calls ?? rows.length)],
@@ -379,11 +394,38 @@ export function buildAnalysisReport(input: AnalysisReportInput): string {
     "",
     `> ${wallNote}${idleNote}`,
     "",
+  ];
+
+  if (subagent && subagent.subagent_count > 0) {
+    const precision = subagent.timing_precision === "event_timestamps"
+      ? "Codex task 事件时间戳"
+      : "Cursor transcript 文件时间（近似）";
+    lines.push(
+      "### 2.1 子 Agent 执行明细",
+      "",
+      mdTable(
+        ["任务", "层级", "激活", "执行累计", "状态", "计时来源"],
+        subagent.subagents.slice(0, 20).map((child) => [
+          escCell(child.task_name ?? child.nickname ?? child.session_id),
+          String(child.depth),
+          String(child.activation_count),
+          formatDuration(child.execution_ms),
+          child.status,
+          child.timing_source,
+        ]),
+      ),
+      "",
+      `> 计时精度：${precision}。执行累计会重复计算并行 Agent；并行墙时不会。两者与主 Agent 等待时间不可相加。完整激活区间见 \`subagent_efficiency.json\`。`,
+      "",
+    );
+  }
+
+  lines.push(
     "## 3. 归因与 Top Violations",
     "",
     attr.explanation,
     "",
-  ];
+  );
 
   if (attr.top_violations?.length) {
     lines.push("**Top violations:**", "");
