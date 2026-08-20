@@ -30,6 +30,7 @@ export default defineConfig({
             { text: "Overview", link: "/architecture/overview" },
             { text: "Pipeline", link: "/architecture/pipeline" },
             { text: "Output Artifacts", link: "/architecture/output" },
+            { text: "Canonical Turn Analysis", link: "/architecture/turn-analysis" },
             { text: "Subagent Efficiency", link: "/architecture/subagent-efficiency" },
           ],
         },

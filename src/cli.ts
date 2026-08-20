@@ -9,6 +9,7 @@ import { buildSessionIndex, defaultSessionIndexPath, formatSessionIndex, writeSe
 import { formatSessionMatches, resolveSessionByTitle, searchSessionsByTitle } from "./session/search.js";
 import { getRunsDir } from "./config.js";
 import { extractSubagentEfficiency } from "./session/subagentEfficiency.js";
+import { analyzeTurn, type TurnAnalysisOptions } from "./session/turnAnalysis.js";
 import { formatDuration } from "./enrich/toolMetrics.js";
 
 const VERSION = (JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8")) as { version: string })
@@ -21,6 +22,8 @@ const USAGE = `Usage:
   trajrx --source codex|cursor --title "会话标题" [--exact] --list-sessions
   trajrx session scan [--output PATH] [--json]
   trajrx session analyze [--changed-only] [--output PATH] [--json]
+  trajrx turn analyze --client codex --hook-state PATH [--session PATH] [--top N] [--json]
+  trajrx turn analyze --client cursor --hook-state PATH [--session PATH] [--top N] [--json]
   trajrx subagents <transcript.jsonl> [--from ISO --to ISO] [--json]
   trajrx runs list [--limit N]
   trajrx <transcript.jsonl> --flatten-only [-o out.md]
@@ -49,6 +52,16 @@ Subagent evidence:
   subagents             Print deterministic child execution, overlap, and parent-wait evidence
   --from / --to         Restrict evidence to one inclusive ISO-8601 time window (both required)
   --json                Print the complete machine-readable evidence object
+
+Turn evidence:
+  turn analyze          Emit deterministic evidence for the completed turn selected by a Hook
+  --client              codex | cursor
+  --hook-state          Exact Hook state directory, start.json, or request.json (required)
+  --session             Exact transcript path; otherwise use bounded source discovery
+  --top N               Maximum rows per bounded evidence list (default 10)
+  --codex-home          Override the Codex data root for this command
+  --cursor-home         Override the Cursor data root for this command
+  --json                Print trajrx_turn_analysis_v1 JSON
 
 Agent evaluation (LLM path):
   --agent-eval          Run agent CLI evaluation after rule pipeline
@@ -134,6 +147,52 @@ function parseSubagentArgs(argv: string[]): { input: string; from?: string; to?:
   if (!input) throw new Error("subagents requires a transcript path");
   if (Boolean(from) !== Boolean(to)) throw new Error("--from and --to must be provided together");
   return { input, from, to, json, showHelp };
+}
+
+function parseTurnArgs(argv: string[]): TurnAnalysisOptions & { json: boolean; showHelp: boolean } {
+  let client: TranscriptSource | undefined;
+  let sessionPath: string | undefined;
+  let hookStatePath: string | undefined;
+  let codexHome: string | undefined;
+  let cursorHome: string | undefined;
+  let top: number | undefined;
+  let json = false;
+  let showHelp = false;
+  for (let i = 0; i < argv.length; i++) {
+    const arg = argv[i];
+    if (arg === "--help" || arg === "-h") showHelp = true;
+    else if (arg === "--json") json = true;
+    else if (arg === "--client") {
+      const value = argv[++i];
+      if (value !== "codex" && value !== "cursor") throw new Error("--client must be codex or cursor");
+      client = value;
+    } else if (arg === "--session") {
+      sessionPath = argv[++i];
+      if (!sessionPath) throw new Error("--session requires a path");
+    } else if (arg === "--hook-state") {
+      hookStatePath = argv[++i];
+      if (!hookStatePath) throw new Error("--hook-state requires a path");
+    } else if (arg === "--codex-home") {
+      codexHome = argv[++i];
+      if (!codexHome) throw new Error("--codex-home requires a path");
+    } else if (arg === "--cursor-home") {
+      cursorHome = argv[++i];
+      if (!cursorHome) throw new Error("--cursor-home requires a path");
+    } else if (arg === "--top") {
+      const value = argv[++i];
+      const parsed = Number(value);
+      if (!value || !Number.isInteger(parsed) || parsed <= 0) throw new Error("--top must be a positive integer");
+      top = parsed;
+    } else if (arg.startsWith("-")) {
+      throw new Error(`Unknown option for turn analyze: ${arg}`);
+    } else {
+      throw new Error(`Unexpected argument for turn analyze: ${arg}`);
+    }
+  }
+  if (showHelp) return { client: client ?? "codex", json, showHelp };
+  if (!client) throw new Error("--client is required. Choose: codex | cursor");
+  if (!hookStatePath) throw new Error(`--hook-state is required for --client ${client}`);
+  return { client, sessionPath, hookStatePath, codexHome, cursorHome, top, json, showHelp };
 }
 
 function formatSubagentEvidence(evidence: ReturnType<typeof extractSubagentEfficiency>): string {
@@ -279,6 +338,24 @@ async function main() {
       endedAt: args.to,
     });
     console.log(args.json ? JSON.stringify(evidence, null, 2) : formatSubagentEvidence(evidence));
+    return;
+  }
+
+  if (argv[0] === "turn") {
+    const command = argv[1];
+    if (!command || command === "--help" || command === "-h") {
+      console.log(USAGE);
+      process.exit(command ? 0 : 1);
+    }
+    if (command !== "analyze") throw new Error(`Unknown turn subcommand: ${command}. Try: trajrx turn analyze`);
+    const args = parseTurnArgs(argv.slice(2));
+    if (args.showHelp) {
+      console.log(USAGE);
+      return;
+    }
+    const { json: _json, showHelp: _showHelp, ...options } = args;
+    const evidence = analyzeTurn(options);
+    console.log(JSON.stringify(evidence, null, 2));
     return;
   }
 

@@ -76,6 +76,32 @@ trajrx subagents /path/to/rollout.jsonl \
 activation and parent-wait intervals, which lets a Hook analyze only the turn
 that triggered it. See [Subagent efficiency evidence](/architecture/subagent-efficiency).
 
+## Hook-scoped turn analysis
+
+Use the lightweight turn command when a Hook or workflow needs deterministic
+evidence for exactly one completed turn without running the attribution or LLM
+pipeline:
+
+```bash
+# Codex: Hook state carries the exact conversation and turn identity
+trajrx turn analyze \
+  --client codex \
+  --hook-state /path/to/long-task-retro/v1/2026-08-20/identity-hash \
+  --json
+
+# Cursor: Hook state binds the conversation, generation, and wall-clock interval
+trajrx turn analyze \
+  --client cursor \
+  --hook-state /path/to/long-task-retro/v1/2026-08-20/identity-hash \
+  --json
+```
+
+Pass `--session` only when the caller already has the exact transcript path or
+bounded discovery is ambiguous. `--top N` bounds detail lists while preserving
+aggregate totals. Selection and timestamp inconsistencies fail non-zero instead
+of falling back to a latest turn. See [Canonical turn analysis](/architecture/turn-analysis)
+for the `trajrx_turn_analysis_v1` contract and source-specific availability.
+
 ## Agent evaluation (LLM path)
 
 ```bash
@@ -105,6 +131,8 @@ Supported external CLIs: `cursor-agent`, `claude`, `codex`.
 trajrx <transcript.jsonl> [--run-name NAME] [--agent-eval]
 trajrx --source codex|cursor --title "会话标题" [--run-name NAME] [--agent-eval]
 trajrx --source codex|cursor --title "会话标题" --list-sessions
+trajrx turn analyze --client codex --hook-state PATH [--session PATH] [--top N] [--json]
+trajrx turn analyze --client cursor --hook-state PATH [--session PATH] [--top N] [--json]
 trajrx subagents <transcript.jsonl> [--from ISO --to ISO] [--json]
 trajrx <transcript.jsonl> --flatten-only [-o out.md]
 trajrx <run-dir> --analysis-only
@@ -123,6 +151,10 @@ trajrx <dir> --batch [--agent-eval]
 | `--verbose` | Mirror stage details to stdout |
 | `--list-sessions` | Print matching sessions and exit |
 | `--from` / `--to` | Inclusive ISO-8601 window for `subagents` evidence; both required |
-| `--json` | Print complete machine-readable `subagents` evidence |
+| `--client` | Transcript source for `turn analyze`: `codex` or `cursor` |
+| `--hook-state` | Exact Hook state directory or state JSON path; required for turn analysis |
+| `--session` | Exact transcript path for turn analysis |
+| `--top` | Positive bound for each turn-analysis detail list (default 10) |
+| `--json` | Print complete machine-readable evidence |
 
 Terminal output uses compact per-stage progress. Set `TRAJRX_PLAIN=1` to force plain-line mode without TUI.
