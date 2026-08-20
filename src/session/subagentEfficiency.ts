@@ -189,9 +189,12 @@ function candidateCodexFiles(transcriptPath: string, events: CodexRolloutEvent[]
 }
 
 function eventDateKeys(events: CodexRolloutEvent[]): Set<string> {
-  const times = events
-    .map((event) => Date.parse(event.timestamp))
-    .filter((value) => Number.isFinite(value));
+  const times = events.flatMap((event) => [
+    Date.parse(event.timestamp),
+    epochTimeMs(event.payload?.started_at),
+    epochTimeMs(event.payload?.completed_at),
+    internalCreateTimeMs(event),
+  ]).filter((value): value is number => value !== null && Number.isFinite(value));
   if (!times.length) return new Set();
   const start = Math.min(...times) - 86_400_000;
   const end = Math.max(...times) + 86_400_000;
@@ -284,7 +287,7 @@ function codexSubagentEvidence(meta: CodexSessionMeta): SubagentSessionEvidence 
 }
 
 function codexActivations(events: CodexRolloutEvent[]): SubagentActivation[] {
-  const started = new Map<string, string>();
+  const started = new Map<string, number>();
   const activations: SubagentActivation[] = [];
   let sequence = 0;
   for (const event of events) {
@@ -292,15 +295,25 @@ function codexActivations(events: CodexRolloutEvent[]): SubagentActivation[] {
     if (type !== "task_started" && type !== "task_complete" && type !== "turn_aborted") continue;
     const turnId = stringValue(event.payload?.turn_id) ?? `activation-${++sequence}`;
     if (type === "task_started") {
-      started.set(turnId, event.timestamp);
+      const startedAt = epochTimeMs(event.payload?.started_at) ?? outerEventTimeMs(event);
+      if (startedAt !== null) started.set(turnId, startedAt);
       continue;
     }
-    const endedAt = validIso(event.timestamp);
     const observedDuration = numberValue(event.payload?.duration_ms);
-    const inferredStart = endedAt && observedDuration !== null
-      ? new Date(Date.parse(endedAt) - observedDuration).toISOString()
+    const endedMs = epochTimeMs(event.payload?.completed_at) ?? outerEventTimeMs(event);
+    const endedAt = endedMs === null ? null : new Date(endedMs).toISOString();
+    const inferredStart = endedMs !== null && observedDuration !== null
+      ? new Date(endedMs - observedDuration).toISOString()
       : null;
-    const startedAt = validIso(started.get(turnId)) ?? inferredStart;
+    const payloadStartedMs = epochTimeMs(event.payload?.started_at);
+    const recordedStartMs = started.get(turnId) ?? payloadStartedMs;
+    const recordedStart = recordedStartMs === null || recordedStartMs === undefined
+      ? null
+      : new Date(recordedStartMs).toISOString();
+    // Completed events provide both canonical duration and completion time.
+    // Deriving the start from them preserves millisecond duration even when
+    // started_at is stored as whole epoch seconds.
+    const startedAt = observedDuration !== null ? inferredStart : recordedStart;
     const duration = observedDuration ?? intervalDuration(startedAt, endedAt);
     activations.push({
       activation_id: turnId,
@@ -316,7 +329,7 @@ function codexActivations(events: CodexRolloutEvent[]): SubagentActivation[] {
   for (const [turnId, startedAt] of started) {
     activations.push({
       activation_id: turnId,
-      started_at: validIso(startedAt),
+      started_at: new Date(startedAt).toISOString(),
       ended_at: null,
       duration_ms: null,
       status: "incomplete",
@@ -334,12 +347,12 @@ function codexParentWaitIntervals(events: CodexRolloutEvent[]): Interval[] {
     const callId = stringValue(payload.call_id);
     if (!callId) continue;
     if (type === "function_call" && String(payload.name ?? "").toLowerCase().endsWith("wait_agent")) {
-      const start = Date.parse(event.timestamp);
-      if (Number.isFinite(start)) calls.set(callId, start);
+      const start = internalCreateTimeMs(event) ?? outerEventTimeMs(event);
+      if (start !== null) calls.set(callId, start);
     } else if (type === "function_call_output") {
       const start = calls.get(callId);
-      const end = Date.parse(event.timestamp);
-      if (start !== undefined && Number.isFinite(end) && end >= start) intervals.push({ start, end });
+      const end = internalCreateTimeMs(event) ?? outerEventTimeMs(event);
+      if (start !== undefined && end !== null && end >= start) intervals.push({ start, end });
     }
   }
   return intervals;
@@ -439,12 +452,6 @@ function compareSubagents(left: SubagentSessionEvidence, right: SubagentSessionE
     || (left.task_name ?? left.session_id).localeCompare(right.task_name ?? right.session_id);
 }
 
-function validIso(value: unknown): string | null {
-  if (typeof value !== "string") return null;
-  const parsed = Date.parse(value);
-  return Number.isFinite(parsed) ? new Date(parsed).toISOString() : null;
-}
-
 function intervalDuration(startedAt: string | null, endedAt: string | null): number | null {
   if (!startedAt || !endedAt) return null;
   const start = Date.parse(startedAt);
@@ -527,8 +534,9 @@ function clipActivation(activation: SubagentActivation, scopeStart: number, scop
   const activationStart = activation.started_at ? Date.parse(activation.started_at) : Number.NaN;
   if (!Number.isFinite(activationStart)) return null;
   if (!activation.ended_at || activation.duration_ms === null) {
-    if (activationStart > scopeEnd) return null;
-    return activationStart >= scopeStart ? activation : { ...activation, started_at: new Date(scopeStart).toISOString() };
+    // Without an observed end, an activation that began before this scope may
+    // have finished in the gap. Do not fabricate an overlap with a later turn.
+    return activationStart >= scopeStart && activationStart <= scopeEnd ? activation : null;
   }
   const activationEnd = Date.parse(activation.ended_at);
   if (!Number.isFinite(activationEnd) || activationEnd < scopeStart || activationStart > scopeEnd) return null;
@@ -551,4 +559,27 @@ function clipInterval(interval: Interval, scopeStart: number, scopeEnd: number):
 function activationStatus(activations: SubagentActivation[]): SubagentSessionEvidence["status"] {
   if (!activations.length || activations.some((activation) => activation.status === "incomplete")) return "incomplete";
   return activations.some((activation) => activation.status === "aborted") ? "aborted" : "complete";
+}
+
+function epochTimeMs(value: unknown): number | null {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return Math.round(Math.abs(value) < 1_000_000_000_000 ? value * 1000 : value);
+  }
+  if (typeof value === "string" && value) {
+    const numeric = Number(value);
+    if (Number.isFinite(numeric)) return epochTimeMs(numeric);
+    const parsed = Date.parse(value);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+  return null;
+}
+
+function internalCreateTimeMs(event: CodexRolloutEvent): number | null {
+  const metadata = nestedRecord(event.payload?.internal_chat_message_metadata_passthrough);
+  return epochTimeMs(metadata.create_time);
+}
+
+function outerEventTimeMs(event: CodexRolloutEvent): number | null {
+  const parsed = Date.parse(event.timestamp);
+  return Number.isFinite(parsed) ? parsed : null;
 }

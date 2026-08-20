@@ -38,3 +38,11 @@ test("trajrx subagents prints machine-readable Cursor evidence", () => {
   assert.equal(evidence.parent_wait_count, null);
   assert.deepEqual(evidence.unavailable, ["parent_wait_ms", "parent_wait_count"]);
 });
+
+test("trajrx subagents rejects a missing transcript", () => {
+  const missing = join(tmpdir(), `trajrx-missing-${process.pid}.jsonl`);
+  const result = spawnSync(process.execPath, [cliPath, "subagents", missing, "--json"], { encoding: "utf8" });
+
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /subagents transcript not found/);
+});

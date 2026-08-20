@@ -30,8 +30,11 @@ workflow meaning.
 Codex rollout files expose a direct parent identifier in
 `session_meta.source.subagent.thread_spawn.parent_thread_id`. Subagent
 activations expose `task_started` and `task_complete` events, including an
-observed duration. Parent `wait_agent` calls and outputs have timestamps.
-TrajRx therefore reports Codex timing from those observed events.
+observed duration. TrajRx prefers task `started_at` / `completed_at` payloads
+and `internal_chat_message_metadata_passthrough.create_time` on parent
+`wait_agent` calls and outputs. The outer JSONL timestamp is only a compatibility
+fallback because some rollouts serialize events later than their observed
+execution time.
 
 Cursor stores child transcripts below the parent transcript directory in
 `subagents/*.jsonl`, but the transcript rows do not expose event timestamps.

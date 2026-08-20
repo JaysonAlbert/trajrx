@@ -271,6 +271,9 @@ async function main() {
       console.log(USAGE);
       return;
     }
+    if (!existsSync(args.input) || !statSync(args.input).isFile()) {
+      throw new Error(`subagents transcript not found: ${args.input}`);
+    }
     const evidence = extractSubagentEfficiency(args.input, undefined, {
       startedAt: args.from,
       endedAt: args.to,
