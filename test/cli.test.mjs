@@ -20,6 +20,23 @@ for (const flag of ["-v", "--version"]) {
   });
 }
 
+test("trajrx rejects an unsupported Node runtime before loading CLI dependencies", () => {
+  const fakeNode18 =
+    "data:text/javascript," +
+    encodeURIComponent('Object.defineProperty(process.versions, "node", { value: "18.20.7" });');
+  const result = spawnSync(process.execPath, ["--import", fakeNode18, cliPath, "--version"], {
+    encoding: "utf8",
+  });
+
+  assert.equal(result.status, 1);
+  assert.equal(result.stdout, "");
+  assert.match(result.stderr, /TrajRx requires Node\.js >=20/);
+  assert.match(result.stderr, /detected v18\.20\.7/);
+  assert.match(result.stderr, /Retry with:/);
+  assert.match(result.stderr, /volta run --node 22\.18\.0/);
+  assert.doesNotMatch(result.stderr, /styleText/);
+});
+
 test("trajrx subagents prints machine-readable Cursor evidence", () => {
   const temp = mkdtempSync(join(tmpdir(), "trajrx-cli-subagents-"));
   const sessionDir = join(temp, "cursor", "projects", "repo", "agent-transcripts", "parent");
