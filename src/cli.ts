@@ -1,16 +1,66 @@
 #!/usr/bin/env node
 import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import type { AgentCliId } from "./agentCli/types.js";
-import { isAgentEvalEnabled, type TranscriptSource } from "./config.js";
-import { agentEvalOnly, flattenOnly, processFile, regenerateAnalysisFromRunDir } from "./pipeline.js";
-import { formatRunsList, listRuns } from "./runs/list.js";
-import { buildSessionIndex, defaultSessionIndexPath, formatSessionIndex, writeSessionIndex } from "./session/index.js";
-import { formatSessionMatches, resolveSessionByTitle, searchSessionsByTitle } from "./session/search.js";
-import { getRunsDir } from "./config.js";
-import { extractSubagentEfficiency } from "./session/subagentEfficiency.js";
-import { analyzeTurn, type TurnAnalysisOptions } from "./session/turnAnalysis.js";
-import { formatDuration } from "./enrich/toolMetrics.js";
+import type { TranscriptSource } from "./config.js";
+import type { TurnAnalysisOptions } from "./session/turnAnalysis.js";
+
+const MINIMUM_NODE_MAJOR = 20;
+const RECOVERY_NODE_VERSION = "22.18.0";
+
+function shellQuote(value: string): string {
+  return `'${value.replaceAll("'", `'"'"'`)}'`;
+}
+
+function recoveryCommand(): string {
+  const args = process.argv.slice(2).map(shellQuote).join(" ");
+  const entryPath = process.argv[1] ?? fileURLToPath(import.meta.url);
+  if (entryPath.endsWith(join("src", "cli.ts"))) {
+    const packageRoot = fileURLToPath(new URL("..", import.meta.url));
+    return `volta run --node ${RECOVERY_NODE_VERSION} npm --silent --prefix ${shellQuote(packageRoot)} run dev --${args ? ` ${args}` : ""}`;
+  }
+  return `volta run --node ${RECOVERY_NODE_VERSION} node ${shellQuote(entryPath)}${args ? ` ${args}` : ""}`;
+}
+
+function assertSupportedNodeRuntime(): void {
+  const detectedVersion = process.versions.node;
+  const detectedMajor = Number.parseInt(detectedVersion.split(".", 1)[0] ?? "", 10);
+  if (Number.isInteger(detectedMajor) && detectedMajor >= MINIMUM_NODE_MAJOR) return;
+
+  console.error(
+    [
+      `TrajRx requires Node.js >=${MINIMUM_NODE_MAJOR}.0.0; detected v${detectedVersion} at ${process.execPath}.`,
+      "The active runtime is unsupported, so TrajRx stopped before loading CLI dependencies.",
+      "Retry with:",
+      `  ${recoveryCommand()}`,
+      `If Volta is unavailable, activate Node.js >=${MINIMUM_NODE_MAJOR}.0.0 and rerun the same command.`,
+    ].join("\n"),
+  );
+  process.exit(1);
+}
+
+assertSupportedNodeRuntime();
+
+const [
+  { getRunsDir, isAgentEvalEnabled },
+  { agentEvalOnly, flattenOnly, processFile, regenerateAnalysisFromRunDir },
+  { formatRunsList, listRuns },
+  { buildSessionIndex, defaultSessionIndexPath, formatSessionIndex, writeSessionIndex },
+  { formatSessionMatches, resolveSessionByTitle, searchSessionsByTitle },
+  { extractSubagentEfficiency },
+  { analyzeTurn },
+  { formatDuration },
+] = await Promise.all([
+  import("./config.js"),
+  import("./pipeline.js"),
+  import("./runs/list.js"),
+  import("./session/index.js"),
+  import("./session/search.js"),
+  import("./session/subagentEfficiency.js"),
+  import("./session/turnAnalysis.js"),
+  import("./enrich/toolMetrics.js"),
+]);
 
 const VERSION = (JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8")) as { version: string })
   .version;

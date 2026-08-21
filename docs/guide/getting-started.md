@@ -39,6 +39,11 @@ npm run dev -- transcript.jsonl --run-name demo
 
 `npm run dev` uses `tsx` and does not require a prior `npm run build`.
 
+TrajRx checks the active Node.js runtime before loading CLI dependencies. If the
+runtime is older than Node.js 20, startup exits with the detected executable and
+an exact `volta run --node 22.18.0 ...` command that can be used to retry. Without
+Volta, activate any supported Node.js runtime and rerun the same command.
+
 ## Quick start
 
 Run the full pipeline on a transcript file:
