@@ -20,9 +20,10 @@ trajrx turn analyze \
 `start.json` and `request.json`, verifies their client/conversation/turn binding,
 and never accepts the acknowledgement secret. `--session` may provide an exact
 rollout path; otherwise Codex searches only the current and preceding UTC date
-directories below `${TRAJRX_CODEX_HOME:-~/.codex}/sessions`, requires one rollout
-for the Hook conversation ID, and never scans older history. `--codex-home`
-overrides the default root.
+directories below `${TRAJRX_CODEX_HOME:-~/.codex}/sessions`, then requires exactly
+one candidate to contain the completed Hook turn selected by conversation ID,
+turn ID and the Hook wall-clock interval. It never scans older history.
+`--codex-home` overrides the default root.
 
 Cursor uses Hook state to bind the exact generation and resolve the main
 conversation transcript:
@@ -66,10 +67,15 @@ only; sub-millisecond finals immediately before the request remain eligible.
 
 When `--session` is omitted, discovery examines only `.jsonl` files below the
 current and previous UTC date directories. Candidate filenames are matched by
-the exact Hook conversation ID and the selected file is validated against
-`session_meta`; no match or more than one match is actionable failure. The
-recovery message asks the caller to pass `--session` when bounded discovery
-cannot identify one rollout.
+the exact Hook conversation ID and each candidate is validated against
+`session_meta`. A candidate matches only when the exact Hook turn ID has one
+`task_started` no later than `requestedWallNs`, followed by a user message and
+a completed assistant final inside `startedWallNs..requestedWallNs`. This
+overlap permits Codex to record the turn start immediately before the prompt
+Hook process records its wall clock.
+Exactly one completed match is selected. No completed match, multiple completed
+matches, or an unevaluable candidate fails closed with bounded candidate counts,
+the Hook selector and a `--session` recovery action.
 
 ### Cursor
 

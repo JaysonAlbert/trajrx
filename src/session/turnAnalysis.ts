@@ -173,33 +173,20 @@ function analyzeCodexTurn(options: TurnAnalysisOptions, top: number): TurnAnalys
   const hook = readHookState(options.hookStatePath, "codex");
   const sessionPath = options.sessionPath
     ? requireFile(options.sessionPath, "Codex rollout")
-    : resolveCodexSession(hook.conversationId, options.codexHome ?? getCodexHome());
+    : resolveCodexSession(hook, options.codexHome ?? getCodexHome());
   const records = readJsonl(sessionPath);
   validateCodexConversation(records, hook.conversationId);
-  const startIndexes = records
-    .map((record, index) => ({ record, index }))
-    .filter(({ record }) => isTaskStarted(record, hook.turnId))
-    .map(({ index }) => index);
-  if (startIndexes.length !== 1) {
-    throw new Error(
-      startIndexes.length === 0
-        ? `no Codex task_started found for Hook turnId=${JSON.stringify(hook.turnId)}`
-        : `multiple Codex task_started records found for Hook turnId=${JSON.stringify(hook.turnId)}`,
-    );
+  const location = locateCompletedCodexHookTurn(records, hook);
+  if (location.status !== "match") {
+    if (location.status === "missing_start") {
+      throw new Error(`no Codex task_started found for Hook turnId=${JSON.stringify(hook.turnId)} within the Hook wall-clock interval`);
+    }
+    if (location.status === "missing_final") {
+      throw new Error("no completed assistant final exists before the selected Codex Hook request");
+    }
+    throw new Error("no user message bounds the selected Codex Hook turn");
   }
-  const taskStartedIndex = startIndexes[0]!;
-  const finalIndexes = records
-    .map((record, index) => ({ record, index }))
-    .filter(({ record, index }) =>
-      index > taskStartedIndex && isAssistantFinal(record) && observedTime(record).ms <= hook.endedMs
-    )
-    .map(({ index }) => index);
-  if (!finalIndexes.length) throw new Error("no completed assistant final exists before the selected Codex Hook request");
-  const finalIndex = finalIndexes.at(-1)!;
-  const userIndex = records.findIndex(
-    (record, index) => index > taskStartedIndex && index <= finalIndex && isUserMessage(record),
-  );
-  if (userIndex < 0) throw new Error("no user message bounds the selected Codex Hook turn");
+  const { userIndex, finalIndex } = location;
 
   const selected = records.slice(userIndex, finalIndex + 1);
   const start = observedTime(records[userIndex]!);
@@ -622,7 +609,7 @@ function readJsonlTail(path: string, limit: number): { records: JsonObject[]; at
   }
 }
 
-function resolveCodexSession(conversationId: string, codexHome: string): string {
+function resolveCodexSession(hook: HookBoundary, codexHome: string): string {
   const sessions = join(codexHome, "sessions");
   const dates = [0, 1].map((daysAgo) => {
     const date = new Date(Date.now() - daysAgo * 86_400_000).toISOString().slice(0, 10);
@@ -634,17 +621,77 @@ function resolveCodexSession(conversationId: string, codexHome: string): string 
     for (const entry of readdirSync(dir, { withFileTypes: true })) {
       if (!entry.isFile() || !entry.name.endsWith(".jsonl")) continue;
       const path = join(dir, entry.name);
-      if (entry.name.includes(conversationId)) matches.push(path);
+      if (entry.name.includes(hook.conversationId)) matches.push(path);
     }
   }
-  if (matches.length !== 1) {
+  const completedMatches: string[] = [];
+  let unevaluable = 0;
+  for (const path of matches) {
+    try {
+      const records = readJsonl(path);
+      if (!codexConversationMatches(records, hook.conversationId)) continue;
+      if (locateCompletedCodexHookTurn(records, hook).status === "match") completedMatches.push(path);
+    } catch {
+      unevaluable += 1;
+    }
+  }
+  const selection = `Hook turnId=${JSON.stringify(hook.turnId)} within ${hook.startedAt}..${hook.endedAt}`;
+  if (unevaluable > 0) {
     throw new Error(
-      matches.length
-        ? `multiple Codex rollouts match conversationId=${JSON.stringify(conversationId)}; pass --session`
-        : `no Codex rollout found for conversationId=${JSON.stringify(conversationId)} in current/previous UTC date directories; pass --session`,
+      `cannot safely evaluate ${unevaluable} of ${matches.length} bounded Codex rollout candidates for ${selection}; pass --session`,
     );
   }
-  return matches[0]!;
+  if (completedMatches.length !== 1) {
+    throw new Error(
+      completedMatches.length > 1
+        ? `${completedMatches.length} of ${matches.length} bounded Codex rollout candidates contain a completed ${selection}; pass --session`
+        : `none of ${matches.length} bounded Codex rollout candidates contains a completed ${selection} in current/previous UTC date directories; pass --session`,
+    );
+  }
+  return completedMatches[0]!;
+}
+
+type CodexTurnLocation =
+  | { status: "match"; userIndex: number; finalIndex: number }
+  | { status: "missing_start" | "missing_final" | "missing_user" };
+
+function locateCompletedCodexHookTurn(records: JsonObject[], hook: HookBoundary): CodexTurnLocation {
+  const startIndexes = records
+    .map((record, index) => ({ record, index }))
+    .filter(({ record }) => {
+      if (!isTaskStarted(record, hook.turnId)) return false;
+      const time = observedTime(record).ms;
+      return time <= hook.endedMs;
+    })
+    .map(({ index }) => index);
+  if (startIndexes.length > 1) {
+    throw new Error(
+      `multiple Codex task_started records found for Hook turnId=${JSON.stringify(hook.turnId)} within the Hook wall-clock interval`,
+    );
+  }
+  if (!startIndexes.length) return { status: "missing_start" };
+  const taskStartedIndex = startIndexes[0]!;
+  const finalIndexes = records
+    .map((record, index) => ({ record, index }))
+    .filter(({ record, index }) => {
+      if (index <= taskStartedIndex || !isAssistantFinal(record)) return false;
+      const time = observedTime(record).ms;
+      return time >= hook.startedMs && time <= hook.endedMs;
+    })
+    .map(({ index }) => index);
+  if (!finalIndexes.length) return { status: "missing_final" };
+  const finalIndex = finalIndexes.at(-1)!;
+  const userIndex = records.findIndex(
+    (record, index) => index > taskStartedIndex && index <= finalIndex && isUserMessage(record),
+  );
+  return userIndex < 0 ? { status: "missing_user" } : { status: "match", userIndex, finalIndex };
+}
+
+function codexConversationMatches(records: JsonObject[], conversationId: string): boolean {
+  return records
+    .filter((record) => record.type === "session_meta")
+    .map((record) => stringValue(asObject(record.payload)?.id))
+    .includes(conversationId);
 }
 
 function resolveCursorSession(cursorHome: string, conversationId: string): string {
@@ -708,11 +755,7 @@ function isTaskStarted(record: JsonObject, turnId: string): boolean {
 }
 
 function validateCodexConversation(records: JsonObject[], conversationId: string): void {
-  const sessionIds = records
-    .filter((record) => record.type === "session_meta")
-    .map((record) => stringValue(asObject(record.payload)?.id))
-    .filter((value): value is string => value !== null);
-  if (!sessionIds.includes(conversationId)) {
+  if (!codexConversationMatches(records, conversationId)) {
     throw new Error(`Codex rollout does not match Hook conversationId=${JSON.stringify(conversationId)}`);
   }
 }
