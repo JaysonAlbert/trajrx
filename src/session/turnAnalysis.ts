@@ -18,6 +18,7 @@ import {
   type SubagentEfficiencyEvidence,
   type SubagentSessionEvidence,
 } from "./subagentEfficiency.js";
+import { resolveCodexStateRolloutPath } from "./search.js";
 
 type JsonObject = Record<string, unknown>;
 type TimeSource = "internal_create_time" | "outer_timestamp" | "hook_state_wall_clock";
@@ -615,18 +616,21 @@ function resolveCodexSession(hook: HookBoundary, codexHome: string): string {
     const date = new Date(Date.now() - daysAgo * 86_400_000).toISOString().slice(0, 10);
     return join(sessions, ...date.split("-"));
   });
-  const matches: string[] = [];
+  const matches = new Set<string>();
+  const stateRolloutPath = resolveCodexStateRolloutPath(codexHome, hook.conversationId);
+  if (stateRolloutPath) matches.add(stateRolloutPath);
   for (const dir of dates) {
     if (!existsSync(dir)) continue;
     for (const entry of readdirSync(dir, { withFileTypes: true })) {
       if (!entry.isFile() || !entry.name.endsWith(".jsonl")) continue;
       const path = join(dir, entry.name);
-      if (entry.name.includes(hook.conversationId)) matches.push(path);
+      if (entry.name.includes(hook.conversationId)) matches.add(path);
     }
   }
+  const candidates = [...matches];
   const completedMatches: string[] = [];
   let unevaluable = 0;
-  for (const path of matches) {
+  for (const path of candidates) {
     try {
       const records = readJsonl(path);
       if (!codexConversationMatches(records, hook.conversationId)) continue;
@@ -638,14 +642,14 @@ function resolveCodexSession(hook: HookBoundary, codexHome: string): string {
   const selection = `Hook turnId=${JSON.stringify(hook.turnId)} within ${hook.startedAt}..${hook.endedAt}`;
   if (unevaluable > 0) {
     throw new Error(
-      `cannot safely evaluate ${unevaluable} of ${matches.length} bounded Codex rollout candidates for ${selection}; pass --session`,
+      `cannot safely evaluate ${unevaluable} of ${candidates.length} bounded Codex rollout candidates for ${selection}; pass --session`,
     );
   }
   if (completedMatches.length !== 1) {
     throw new Error(
       completedMatches.length > 1
-        ? `${completedMatches.length} of ${matches.length} bounded Codex rollout candidates contain a completed ${selection}; pass --session`
-        : `none of ${matches.length} bounded Codex rollout candidates contains a completed ${selection} in current/previous UTC date directories; pass --session`,
+        ? `${completedMatches.length} of ${candidates.length} bounded Codex rollout candidates contain a completed ${selection}; pass --session`
+        : `none of ${candidates.length} bounded Codex rollout candidates contains a completed ${selection} in Desktop state/current/previous UTC lookup; pass --session`,
     );
   }
   return completedMatches[0]!;

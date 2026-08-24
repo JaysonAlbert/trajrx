@@ -154,6 +154,45 @@ function loadCodexThreadsFromStateDb(stateDbPath: string): CodexThreadRow[] {
   }
 }
 
+function loadCodexRolloutPathFromStateDb(stateDbPath: string, threadId: string): string | undefined {
+  try {
+    const { DatabaseSync } = require("node:sqlite") as typeof import("node:sqlite");
+    const db = new DatabaseSync(stateDbPath, { readOnly: true });
+    try {
+      const row = db
+        .prepare("SELECT rollout_path FROM threads WHERE id = ? LIMIT 1")
+        .get(threadId) as { rollout_path?: string } | undefined;
+      return row?.rollout_path;
+    } finally {
+      db.close();
+    }
+  } catch {
+    try {
+      const escapedId = threadId.replaceAll("'", "''");
+      const out = execFileSync(
+        "sqlite3",
+        [
+          "-json",
+          stateDbPath,
+          `SELECT rollout_path FROM threads WHERE id = '${escapedId}' LIMIT 1`,
+        ],
+        { encoding: "utf-8", maxBuffer: 1024 * 1024 },
+      );
+      const rows = JSON.parse(out || "[]") as Array<{ rollout_path?: string }>;
+      return rows[0]?.rollout_path;
+    } catch {
+      return undefined;
+    }
+  }
+}
+
+export function resolveCodexStateRolloutPath(codexHome: string, threadId: string): string | undefined {
+  const stateDbPath = findCodexStateDb(codexHome);
+  if (!stateDbPath) return undefined;
+  const rolloutPath = loadCodexRolloutPathFromStateDb(stateDbPath, threadId);
+  return rolloutPath && existsSync(rolloutPath) ? rolloutPath : undefined;
+}
+
 function codexTitleMatchScore(
   title: string,
   firstUserMessage: string | undefined,

@@ -19,10 +19,12 @@ trajrx turn analyze \
 `--hook-state` is mandatory for both clients. TrajRx reads the immutable
 `start.json` and `request.json`, verifies their client/conversation/turn binding,
 and never accepts the acknowledgement secret. `--session` may provide an exact
-rollout path; otherwise Codex searches only the current and preceding UTC date
-directories below `${TRAJRX_CODEX_HOME:-~/.codex}/sessions`, then requires exactly
-one candidate to contain the completed Hook turn selected by conversation ID,
-turn ID and the Hook wall-clock interval. It never scans older history.
+rollout path; otherwise Codex first resolves the conversation ID through the
+latest Desktop `state_*.sqlite` thread record's `rollout_path`. It also checks
+exact-ID filename candidates in the current and preceding UTC date directories
+below `${TRAJRX_CODEX_HOME:-~/.codex}/sessions`, then requires exactly one
+candidate to contain the completed Hook turn selected by conversation ID, turn
+ID and the Hook wall-clock interval. It never scans older history recursively.
 `--codex-home` overrides the default root.
 
 Cursor uses Hook state to bind the exact generation and resolve the main
@@ -65,10 +67,13 @@ Selection compares against the numeric `requestedWallNs` value without first
 rounding it through an ISO millisecond string. ISO rendering is presentation
 only; sub-millisecond finals immediately before the request remain eligible.
 
-When `--session` is omitted, discovery examines only `.jsonl` files below the
-current and previous UTC date directories. Candidate filenames are matched by
-the exact Hook conversation ID and each candidate is validated against
-`session_meta`. A candidate matches only when the exact Hook turn ID has one
+When `--session` is omitted, discovery combines the existing rollout path from
+the exact Desktop state thread record with `.jsonl` files below the current and
+previous UTC date directories whose filenames contain the exact Hook
+conversation ID. This keeps lookup bounded while allowing a long-lived Desktop
+conversation to keep its rollout under its original creation date. Every
+candidate is validated against `session_meta`. A candidate matches only when
+the exact Hook turn ID has one
 `task_started` no later than `requestedWallNs`, followed by a user message and
 a completed assistant final inside `startedWallNs..requestedWallNs`. This
 overlap permits Codex to record the turn start immediately before the prompt
