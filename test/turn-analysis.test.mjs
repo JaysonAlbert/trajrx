@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { mkdtempSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { spawnSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -85,6 +85,10 @@ function writeHookState(path, { client, conversationId, turnId, startedAt, reque
 
 function currentCodexSessionDay(codexHome) {
   return join(codexHome, "sessions", ...new Date().toISOString().slice(0, 10).split("-"));
+}
+
+function sqlString(value) {
+  return `'${value.replaceAll("'", "''")}'`;
 }
 
 function completedCodexRollout({ conversationId, turnId, taskStartedAt, userAt, finalAt, userText = "target" }) {
@@ -253,6 +257,44 @@ test("Codex discovery selects the only completed Hook turn across rollout files"
   assert.equal(evidence.selection.session_path, selected);
   assert.equal(evidence.selection.turn_id, "target-turn");
   assert.equal(evidence.boundary.user_preview, "target");
+});
+
+test("Codex discovery uses the Desktop state rollout path for a long-lived conversation", () => {
+  const temp = mkdtempSync(join(tmpdir(), "trajrx-turn-codex-state-rollout-"));
+  const codexHome = join(temp, "codex");
+  const historicalDate = new Date(Date.now() - 7 * 86_400_000).toISOString().slice(0, 10);
+  const historicalDay = join(codexHome, "sessions", ...historicalDate.split("-"));
+  const hookState = join(temp, "hook-state");
+  const conversationId = "long-lived-conversation";
+  mkdirSync(historicalDay, { recursive: true });
+  const selected = join(historicalDay, `rollout-historical-${conversationId}.jsonl`);
+  writeJsonl(selected, completedCodexRollout({
+    conversationId,
+    turnId: "target-turn",
+    taskStartedAt: "2026-08-24T00:00:09.000Z",
+    userAt: "2026-08-24T00:00:09.500Z",
+    finalAt: "2026-08-24T00:00:13.000Z",
+  }));
+  execFileSync("sqlite3", [
+    join(codexHome, "state_5.sqlite"),
+    `CREATE TABLE threads (id TEXT, rollout_path TEXT);
+     INSERT INTO threads VALUES (${sqlString(conversationId)}, ${sqlString(selected)});`,
+  ]);
+  writeHookState(hookState, {
+    client: "codex",
+    conversationId,
+    turnId: "target-turn",
+    startedAt: "2026-08-24T00:00:10.000Z",
+    requestedAt: "2026-08-24T00:00:14.000Z",
+  });
+
+  const result = spawnSync(process.execPath, [
+    cliPath, "turn", "analyze", "--client", "codex", "--hook-state", hookState,
+    "--codex-home", codexHome, "--json",
+  ], { encoding: "utf8" });
+
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(JSON.parse(result.stdout).selection.session_path, selected);
 });
 
 test("Codex discovery rejects multiple completed Hook-turn matches", () => {
