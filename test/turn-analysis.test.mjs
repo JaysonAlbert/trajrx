@@ -83,6 +83,19 @@ function writeHookState(path, { client, conversationId, turnId, startedAt, reque
   }), "utf8");
 }
 
+function currentCodexSessionDay(codexHome) {
+  return join(codexHome, "sessions", ...new Date().toISOString().slice(0, 10).split("-"));
+}
+
+function completedCodexRollout({ conversationId, turnId, taskStartedAt, userAt, finalAt, userText = "target" }) {
+  return [
+    { timestamp: taskStartedAt, type: "session_meta", payload: { id: conversationId } },
+    { timestamp: taskStartedAt, type: "event_msg", payload: { type: "task_started", turn_id: turnId } },
+    codexMessage(userAt, "user", userText),
+    codexMessage(finalAt, "assistant", "done", "final"),
+  ];
+}
+
 test("trajrx turn analyze emits scoped Codex evidence with exact observed timing", () => {
   const temp = mkdtempSync(join(tmpdir(), "trajrx-turn-codex-"));
   const day = join(temp, "codex", "sessions", "2026", "08", "20");
@@ -197,6 +210,141 @@ test("trajrx turn analyze emits scoped Codex evidence with exact observed timing
   assert.equal(evidence.subagent_efficiency.execution_sum_ms, 3000);
   assert.equal(evidence.subagent_efficiency.wall_union_ms, 3000);
   assert.deepEqual(evidence.unavailable, []);
+});
+
+test("Codex discovery selects the only completed Hook turn across rollout files", () => {
+  const temp = mkdtempSync(join(tmpdir(), "trajrx-turn-codex-multi-rollout-"));
+  const codexHome = join(temp, "codex");
+  const day = currentCodexSessionDay(codexHome);
+  const hookState = join(temp, "hook-state");
+  const conversationId = "same-conversation";
+  mkdirSync(day, { recursive: true });
+  writeJsonl(join(day, `rollout-old-${conversationId}.jsonl`), completedCodexRollout({
+    conversationId,
+    turnId: "target-turn",
+    taskStartedAt: "2026-08-20T00:00:05.000Z",
+    userAt: "2026-08-20T00:00:06.000Z",
+    finalAt: "2026-08-20T00:00:07.000Z",
+    userText: "outside Hook boundary",
+  }));
+  const selected = join(day, `rollout-current-${conversationId}.jsonl`);
+  writeJsonl(selected, completedCodexRollout({
+    conversationId,
+    turnId: "target-turn",
+    taskStartedAt: "2026-08-20T00:00:09.000Z",
+    userAt: "2026-08-20T00:00:09.500Z",
+    finalAt: "2026-08-20T00:00:13.000Z",
+  }));
+  writeHookState(hookState, {
+    client: "codex",
+    conversationId,
+    turnId: "target-turn",
+    startedAt: "2026-08-20T00:00:10.000Z",
+    requestedAt: "2026-08-20T00:00:14.000Z",
+  });
+
+  const result = spawnSync(process.execPath, [
+    cliPath, "turn", "analyze", "--client", "codex", "--hook-state", hookState,
+    "--codex-home", codexHome, "--json",
+  ], { encoding: "utf8" });
+
+  assert.equal(result.status, 0, result.stderr);
+  const evidence = JSON.parse(result.stdout);
+  assert.equal(evidence.selection.session_path, selected);
+  assert.equal(evidence.selection.turn_id, "target-turn");
+  assert.equal(evidence.boundary.user_preview, "target");
+});
+
+test("Codex discovery rejects multiple completed Hook-turn matches", () => {
+  const temp = mkdtempSync(join(tmpdir(), "trajrx-turn-codex-ambiguous-"));
+  const codexHome = join(temp, "codex");
+  const day = currentCodexSessionDay(codexHome);
+  const hookState = join(temp, "hook-state");
+  const conversationId = "ambiguous-conversation";
+  mkdirSync(day, { recursive: true });
+  for (const suffix of ["one", "two"]) {
+    writeJsonl(join(day, `rollout-${suffix}-${conversationId}.jsonl`), completedCodexRollout({
+      conversationId,
+      turnId: "target-turn",
+      taskStartedAt: "2026-08-20T00:00:11.000Z",
+      userAt: "2026-08-20T00:00:12.000Z",
+      finalAt: "2026-08-20T00:00:13.000Z",
+    }));
+  }
+  writeHookState(hookState, {
+    client: "codex", conversationId, turnId: "target-turn",
+    startedAt: "2026-08-20T00:00:10.000Z", requestedAt: "2026-08-20T00:00:14.000Z",
+  });
+
+  const result = spawnSync(process.execPath, [
+    cliPath, "turn", "analyze", "--client", "codex", "--hook-state", hookState,
+    "--codex-home", codexHome, "--json",
+  ], { encoding: "utf8" });
+
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /2 of 2 bounded Codex rollout candidates contain a completed Hook turn/);
+  assert.match(result.stderr, /pass --session/);
+});
+
+test("Codex discovery rejects when no candidate contains the completed Hook turn", () => {
+  const temp = mkdtempSync(join(tmpdir(), "trajrx-turn-codex-no-match-"));
+  const codexHome = join(temp, "codex");
+  const day = currentCodexSessionDay(codexHome);
+  const hookState = join(temp, "hook-state");
+  const conversationId = "missing-conversation";
+  mkdirSync(day, { recursive: true });
+  writeJsonl(join(day, `rollout-${conversationId}.jsonl`), completedCodexRollout({
+    conversationId,
+    turnId: "another-turn",
+    taskStartedAt: "2026-08-20T00:00:11.000Z",
+    userAt: "2026-08-20T00:00:12.000Z",
+    finalAt: "2026-08-20T00:00:13.000Z",
+  }));
+  writeHookState(hookState, {
+    client: "codex", conversationId, turnId: "target-turn",
+    startedAt: "2026-08-20T00:00:10.000Z", requestedAt: "2026-08-20T00:00:14.000Z",
+  });
+
+  const result = spawnSync(process.execPath, [
+    cliPath, "turn", "analyze", "--client", "codex", "--hook-state", hookState,
+    "--codex-home", codexHome, "--json",
+  ], { encoding: "utf8" });
+
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /none of 1 bounded Codex rollout candidates contains a completed Hook turn/);
+  assert.match(result.stderr, /pass --session/);
+});
+
+test("explicit Codex --session remains higher priority than ambiguous discovery", () => {
+  const temp = mkdtempSync(join(tmpdir(), "trajrx-turn-codex-explicit-session-"));
+  const codexHome = join(temp, "codex");
+  const day = currentCodexSessionDay(codexHome);
+  const hookState = join(temp, "hook-state");
+  const conversationId = "explicit-conversation";
+  mkdirSync(day, { recursive: true });
+  const rows = completedCodexRollout({
+    conversationId,
+    turnId: "target-turn",
+    taskStartedAt: "2026-08-20T00:00:11.000Z",
+    userAt: "2026-08-20T00:00:12.000Z",
+    finalAt: "2026-08-20T00:00:13.000Z",
+  });
+  const selected = join(temp, "explicit-rollout.jsonl");
+  writeJsonl(selected, rows);
+  writeJsonl(join(day, `rollout-one-${conversationId}.jsonl`), rows);
+  writeJsonl(join(day, `rollout-two-${conversationId}.jsonl`), rows);
+  writeHookState(hookState, {
+    client: "codex", conversationId, turnId: "target-turn",
+    startedAt: "2026-08-20T00:00:10.000Z", requestedAt: "2026-08-20T00:00:14.000Z",
+  });
+
+  const result = spawnSync(process.execPath, [
+    cliPath, "turn", "analyze", "--client", "codex", "--hook-state", hookState,
+    "--codex-home", codexHome, "--session", selected, "--json",
+  ], { encoding: "utf8" });
+
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(JSON.parse(result.stdout).selection.session_path, selected);
 });
 
 test("Codex tool wait uses outer call/output timestamps instead of model response create time", () => {

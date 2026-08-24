@@ -97,10 +97,13 @@ trajrx turn analyze \
 ```
 
 Pass `--session` only when the caller already has the exact transcript path or
-bounded discovery is ambiguous. `--top N` bounds detail lists while preserving
-aggregate totals. Selection and timestamp inconsistencies fail non-zero instead
-of falling back to a latest turn. See [Canonical turn analysis](/architecture/turn-analysis)
-for the `trajrx_turn_analysis_v1` contract and source-specific availability.
+bounded discovery cannot select exactly one completed Hook turn. Codex discovery
+uses the Hook conversation ID, turn ID and wall-clock interval across same-
+conversation rollout files; no match and ambiguity fail closed. `--top N` bounds
+detail lists while preserving aggregate totals. Selection and timestamp
+inconsistencies fail non-zero instead of falling back to a latest turn. See
+[Canonical turn analysis](/architecture/turn-analysis) for the
+`trajrx_turn_analysis_v1` contract and source-specific availability.
 
 ## Agent evaluation (LLM path)
 
