@@ -18,6 +18,7 @@ import {
   type SubagentEfficiencyEvidence,
   type SubagentSessionEvidence,
 } from "./subagentEfficiency.js";
+import { nestedExecution, type ExecutionOutput, type NestedExecutionEvidence } from "./nestedExecution.js";
 import { resolveCodexStateRolloutPath } from "./search.js";
 
 type JsonObject = Record<string, unknown>;
@@ -92,6 +93,7 @@ export interface TurnAnalysisEvidence {
     other_observed_ms: number | null;
   };
   tools: {
+    nested_execution: NestedExecutionEvidence | null;
     call_count: number;
     failed_count: number | null;
     incomplete_count: number | null;
@@ -278,6 +280,7 @@ function analyzeCursorTurn(options: TurnAnalysisOptions, top: number): TurnAnaly
     "elapsed.tool_wait_union_ms",
     "elapsed.tool_wait_sum_ms",
     "elapsed.other_observed_ms",
+    "tools.nested_execution",
     "tools.failed_count",
     "tools.incomplete_count",
     "tools.total_output_chars",
@@ -326,6 +329,7 @@ function analyzeCursorTurn(options: TurnAnalysisOptions, top: number): TurnAnaly
     },
     tools: {
       call_count: calls.length,
+      nested_execution: null,
       failed_count: null,
       incomplete_count: null,
       total_input_chars: calls.reduce((sum, item) => sum + item.input_chars, 0),
@@ -377,6 +381,7 @@ function codexToolEvidence(records: JsonObject[], top: number): {
   });
 
   const calls: CodexCall[] = [];
+  const executionOutputs: ExecutionOutput[] = [];
   const intervals: Array<[number, number]> = [];
   records.forEach((record, recordIndex) => {
     const payload = asObject(record.payload);
@@ -394,6 +399,14 @@ function codexToolEvidence(records: JsonObject[], top: number): {
     const inputStats = countToolInputStats(name, inputObject);
     const rawOutput = output ? asObject(output.payload)?.output ?? asObject(output.payload)?.content ?? "" : null;
     const outputText = rawOutput === null ? null : stableString(rawOutput);
+    const matchedOutputs = (outputs.get(callId ?? "") ?? []).filter(item => item.index >= recordIndex);
+    executionOutputs.push({
+      sequence: calls.length + 1,
+      name,
+      output: matchedOutputs.length
+        ? matchedOutputs.map(item => asObject(item.record.payload)?.output ?? asObject(item.record.payload)?.content ?? null)
+        : null,
+    });
     calls.push({
       sequence: calls.length + 1,
       name,
@@ -423,6 +436,7 @@ function codexToolEvidence(records: JsonObject[], top: number): {
     waitSumMs,
     summary: {
       call_count: calls.length,
+      nested_execution: nestedExecution(executionOutputs, top),
       failed_count: failed.length,
       incomplete_count: calls.filter((item) => !item.completed).length,
       total_input_chars: calls.reduce((sum, item) => sum + item.input_chars, 0),
