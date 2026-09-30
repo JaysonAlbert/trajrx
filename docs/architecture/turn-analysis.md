@@ -138,6 +138,7 @@ interface TrajRxTurnAnalysisV1 {
     other_observed_ms: number | null;
   };
   tools: {
+    nested_execution: NestedExecutionEvidence | null;
     call_count: number;
     failed_count: number | null;
     incomplete_count: number | null;
@@ -299,6 +300,45 @@ All transcript-derived strings are redacted before output, including structured
 keys or textual CLI/header/env forms containing token, password, secret,
 authorization or common API-key spellings. Aggregates are calculated before
 previews are bounded.
+
+## Nested execution observations
+
+`tools.nested_execution` is an additive v1 field. Existing tool counts, failures,
+repetitions and timing retain their outer-envelope meaning. A successful
+`functions.exec` does not imply that every operation it called succeeded.
+
+The nested summary has `coverage: "observed_only"`, `observed_result_count`,
+`failed_count`, `succeeded_count`, `unknown_count`, and bounded `results`,
+`unknown_wrappers` and `error_hints`. Results carry `parent_sequence`, `path`,
+`outcome` (`failed`, `succeeded`, `unknown`), `signals` and
+`interpretation: "unclassified"`. Aggregate counts precede `--top` bounding.
+Desktop bare `exec`/`wait` aliases require the Script envelope; direct shell
+envelopes remain outer operations. All output records matched to the wrapper
+are inspected, including separate header/result text blocks and yielded output.
+Cursor has no results: this field is null and named in `unavailable`.
+
+Only execution-wrapper output is inspected. Structured command exit codes,
+MCP `isError`/`is_error`, and allSettled rejected/fulfilled results are observed
+at explicit result boundaries. Known command presentation envelopes also
+expose exit codes. An envelope is counted once even when it has several error
+signals; its stdout/content and duplicate structured content are not recursively
+counted as operations. Separate emitted results are separate observations:
+there is no reliable operation identity with which to deduplicate arbitrary
+reprinted results or correlate exec_command and write_stdin sessions.
+
+Missing exit/error fields, pending sessions, malformed/truncated output, and
+wrappers without recognizable results remain unknown. Unknown wrappers are
+bounded observations, not a count of hidden operations. Textual TypeError,
+HTTP errors and unknown-command indicators are only unclassified error hints;
+they do not manufacture failure counts. The parser does not execute or infer
+calls from JavaScript, treat arbitrary command stdout as result objects, or
+infer unprinted internal operations/repeated calls. Observed counts are lower
+bounds on emitted results, never a complete nested call population.
+
+Expected RED tests and failures later recovered remain observed failures.
+Neither a later success nor a textual claim establishes expectedness or
+recovery; the consuming retrospective owns that judgment. No raw nested
+stdout or exception text is emitted in this field.
 
 ## Harness invocation protocol
 
